@@ -808,9 +808,9 @@ tbody tr:hover{background:#F8F9FF;}
     <!-- Stats -->
     <div class="stats-row">
       <div class="sc s1"><div class="sc-ico">📋</div><div><div class="sc-num" id="st0">0</div><div class="sc-lbl" id="stl0">รายการทั้งหมด</div></div></div>
-      <div class="sc s2"><div class="sc-ico">📅</div><div><div class="sc-num" id="st1">0</div><div class="sc-lbl">บันทึกวันนี้</div></div></div>
-      <div class="sc s3"><div class="sc-ico">📆</div><div><div class="sc-num" id="st2">0</div><div class="sc-lbl">เดือนนี้</div></div></div>
-      <div class="sc s4"><div class="sc-ico">🌙</div><div><div class="sc-num" id="st3">0</div><div class="sc-lbl">มาสายวันนี้ (หลัง 20:00)</div></div></div>
+      <div class="sc s2"><div class="sc-ico">📅</div><div><div class="sc-num" id="st1">0</div><div class="sc-lbl" id="stl1">บันทึกวันนี้</div></div></div>
+      <div class="sc s3"><div class="sc-ico">📆</div><div><div class="sc-num" id="st2">0</div><div class="sc-lbl" id="stl2">เดือนนี้</div></div></div>
+      <div class="sc s4"><div class="sc-ico">🌙</div><div><div class="sc-num" id="st3">0</div><div class="sc-lbl" id="stl3">มาสายวันนี้ (หลัง 20:00)</div></div></div>
     </div>
 
     <!-- Form -->
@@ -867,17 +867,17 @@ tbody tr:hover{background:#F8F9FF;}
         <div class="exp-row">
           <div class="fld">
             <label>สาขา (ทั้งหมด = ไม่เลือก)</label>
-            <select id="exp-store" onchange="updatePrev();renderTbl()">
+            <select id="exp-store" onchange="updatePrev();renderTbl();updateStats()">
               <option value="">— ทุกสาขา —</option>
             </select>
           </div>
           <div class="fld">
             <label>วันที่เริ่มต้น</label>
-            <input type="date" id="exp-from" onchange="updatePrev();renderTbl()"/>
+            <input type="date" id="exp-from" onchange="updatePrev();renderTbl();updateStats()"/>
           </div>
           <div class="fld">
             <label>วันที่สิ้นสุด</label>
-            <input type="date" id="exp-to" onchange="updatePrev();renderTbl()"/>
+            <input type="date" id="exp-to" onchange="updatePrev();renderTbl();updateStats()"/>
           </div>
           <div class="fld">
             <label style="visibility:hidden;">x</label>
@@ -1265,6 +1265,8 @@ function doLogin(){
   const t = todayISO();
   document.getElementById('exp-from').value = t;
   document.getElementById('exp-to').value   = t;
+  document.getElementById('dash-from').value = t;
+  document.getElementById('dash-to').value   = t;
   if(isAdmin){
     document.getElementById('reset-store').innerHTML =
       '<option value="">— ทุกสาขา (สแกนทั้งหมด) —</option>' + STORES.map(s=>`<option>${s}</option>`).join('');
@@ -1536,15 +1538,66 @@ document.getElementById('modal').addEventListener('click', e => {
 });
 
 /* ══════════════════════════════════════════════════════
-   STATS
+   STATS — reflects the Filter & Export panel (store + date range)
+   If no date range is set (or it's still today=today), falls
+   back to the original "today / this month" behaviour.
    ══════════════════════════════════════════════════════ */
 function updateStats(){
-  const base  = visibleArr();
-  const today = todayISO(), ym = today.slice(0,7);
-  document.getElementById('st0').textContent = base.length;
-  document.getElementById('st1').textContent = base.filter(r=>r.iso===today).length;
-  document.getElementById('st2').textContent = base.filter(r=>(r.iso||'').startsWith(ym)).length;
-  document.getElementById('st3').textContent = base.filter(r=>r.iso===today && isLateRecord(r.ts)).length;
+  const base    = visibleArr();
+  const isAdmin = currentUser?.role === 'admin';
+
+  // Store scope: admins respect the Export store dropdown; store users are
+  // already scoped to their own store via visibleArr().
+  const storeFilter = isAdmin ? (document.getElementById('exp-store')?.value || '') : '';
+  const scoped = storeFilter ? base.filter(r => r.store === storeFilter) : base;
+
+  const today  = todayISO();
+  const exFrom = document.getElementById('exp-from')?.value || '';
+  const exTo   = document.getElementById('exp-to')?.value   || '';
+  const isDefaultRange = (!exFrom && !exTo) || (exFrom === today && exTo === today);
+
+  const from = isDefaultRange ? today : exFrom;
+  const to   = isDefaultRange ? today : exTo;
+
+  const inRange = scoped.filter(r=>{
+    if(from && (r.iso||'') < from) return false;
+    if(to   && (r.iso||'') > to)   return false;
+    return true;
+  });
+
+  // Month scope follows the start of the selected range (defaults to current month)
+  const ym      = (from || to || today).slice(0,7);
+  const inMonth = scoped.filter(r => (r.iso||'').startsWith(ym));
+
+  document.getElementById('st0').textContent = scoped.length;
+  document.getElementById('st1').textContent = inRange.length;
+  document.getElementById('st2').textContent = inMonth.length;
+  document.getElementById('st3').textContent = inRange.filter(r=>isLateRecord(r.ts)).length;
+
+  // Dynamic labels
+  const lbl1 = document.getElementById('stl1');
+  const lbl2 = document.getElementById('stl2');
+  const lbl3 = document.getElementById('stl3');
+  if(isDefaultRange){
+    lbl1.textContent = 'บันทึกวันนี้';
+    lbl3.textContent = 'มาสายวันนี้ (หลัง 20:00)';
+    lbl2.textContent = 'เดือนนี้';
+  } else {
+    let rangeTxt;
+    if(exFrom && exTo){
+      rangeTxt = exFrom === exTo ? `วันที่ ${isoThai(exFrom)}` : `${isoThai(exFrom)} - ${isoThai(exTo)}`;
+    } else if(exFrom){
+      rangeTxt = `ตั้งแต่ ${isoThai(exFrom)}`;
+    } else {
+      rangeTxt = `จนถึง ${isoThai(exTo)}`;
+    }
+    lbl1.textContent = `บันทึก (${rangeTxt})`;
+    lbl3.textContent = `มาสาย (${rangeTxt} · หลัง 20:00)`;
+    const ymYear = parseInt(ym.slice(0,4),10) + 543;
+    const ymMon  = MONTHS[parseInt(ym.slice(5,7),10) - 1];
+    lbl2.textContent = `เดือน ${ymMon} ${ymYear}`;
+  }
+
   if(currentUser?.role === 'admin' && dashboardActive) renderDashboard();
 }
 
@@ -1592,9 +1645,10 @@ function getDashFiltered(){
   });
 }
 function resetDashFilter(){
+  const t = todayISO();
   document.getElementById('dash-store-filter').value = '';
-  document.getElementById('dash-from').value = '';
-  document.getElementById('dash-to').value   = '';
+  document.getElementById('dash-from').value = t;
+  document.getElementById('dash-to').value   = t;
   renderDashboard();
 }
 
