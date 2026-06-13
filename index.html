@@ -1,0 +1,2206 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>ระบบบันทึกชื่อ-นามสกุล</title>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<!-- SheetJS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Firebase SDK v9 (compat) -->
+<!-- html5-qrcode for QR Login -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- Chart.js for Dashboard -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></script>
+<style>
+:root{
+  --primary:#4F6EF7;--primary-lt:#EEF1FF;
+  --secondary:#F7567C;--secondary-lt:#FFF0F3;
+  --accent:#00C49A;--accent-lt:#E6FAF6;
+  --excel:#1D6F42;--excel-lt:#E8F5EE;
+  --bg:#F4F6FB;--bg2:#ECEEF5;
+  --card:#FFFFFF;--border:#DDE2EF;
+  --text:#1A1D2E;--text2:#6B7280;--text3:#9CA3AF;
+  --radius:14px;--shadow:0 2px 16px rgba(79,110,247,.10);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{min-height:100vh;font-family:'Kanit',sans-serif;background:var(--bg);color:var(--text);overflow-x:hidden;}
+
+/* ══ LOADING OVERLAY ══ */
+#loading{
+  position:fixed;inset:0;background:rgba(244,246,251,.95);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  z-index:9999;gap:16px;
+}
+#loading.hide{display:none;}
+.spinner{
+  width:44px;height:44px;border-radius:50%;
+  border:4px solid var(--border);border-top-color:var(--primary);
+  animation:spin .8s linear infinite;
+}
+.loading-txt{font-size:.9rem;color:var(--text2);font-weight:500;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+/* ══ STATUS DOT ══ */
+.online-dot{
+  width:8px;height:8px;border-radius:50%;background:#6B7280;
+  display:inline-block;margin-right:4px;transition:background .3s;
+}
+.online-dot.on{background:#00C49A;box-shadow:0 0 6px rgba(0,196,154,.5);}
+.online-dot.off{background:#F7567C;}
+
+/* ══ LOGIN ══ */
+#login-page{
+  display:none;align-items:center;justify-content:center;
+  min-height:100vh;padding:20px;
+  background:linear-gradient(145deg,#EEF1FF 0%,#F4F6FB 50%,#FFF0F3 100%);
+}
+#login-page.show{display:flex;}
+.login-box{
+  background:var(--card);border:1px solid var(--border);border-radius:24px;
+  padding:36px 38px;width:100%;max-width:460px;
+  box-shadow:0 8px 40px rgba(79,110,247,.13);animation:fadeUp .45s ease both;
+}
+.login-logo{text-align:center;margin-bottom:28px;}
+.login-logo .icon{
+  width:72px;height:72px;border-radius:20px;
+  background:linear-gradient(135deg,var(--primary),var(--secondary));
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:2rem;margin-bottom:12px;box-shadow:0 6px 20px rgba(79,110,247,.3);
+}
+.login-logo h1{font-size:1.4rem;font-weight:700;}
+.login-logo p{font-size:.83rem;color:var(--text2);margin-top:4px;}
+.fg{margin-bottom:16px;}
+.fg label{display:block;font-size:.8rem;color:var(--text2);margin-bottom:5px;font-weight:600;}
+.fg input{
+  width:100%;padding:11px 14px;border-radius:11px;
+  border:1.5px solid var(--border);background:#FAFBFF;color:var(--text);
+  font-family:'Kanit',sans-serif;font-size:.93rem;transition:border .2s,box-shadow .2s;
+}
+.fg input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,110,247,.12);}
+.btn-login{
+  width:100%;padding:13px;border:none;border-radius:11px;cursor:pointer;
+  font-family:'Kanit',sans-serif;font-size:1rem;font-weight:700;
+  background:linear-gradient(135deg,var(--primary),#7C8CF8);color:#fff;
+  box-shadow:0 4px 18px rgba(79,110,247,.35);transition:transform .15s,box-shadow .15s;margin-top:4px;
+}
+.btn-login:hover{transform:translateY(-2px);box-shadow:0 6px 24px rgba(79,110,247,.45);}
+.btn-login:active{transform:translateY(0);}
+.login-err{
+  background:#FFF1F1;border:1px solid #FFCDD2;border-radius:9px;
+  color:#C62828;padding:9px 14px;font-size:.84rem;text-align:center;margin-top:11px;display:none;
+}
+.login-hint{
+  margin-top:18px;padding:12px 14px;background:var(--bg);border-radius:10px;
+  font-size:.78rem;color:var(--text2);border:1px solid var(--border);line-height:1.8;
+}
+.login-hint b{color:var(--text);}
+
+/* QR Login Tabs */
+.login-tabs{display:flex;gap:0;margin-bottom:22px;border-radius:12px;overflow:hidden;border:1.5px solid var(--border);}
+.login-tab{
+  flex:1;padding:10px;text-align:center;cursor:pointer;
+  font-family:'Kanit',sans-serif;font-size:.88rem;font-weight:600;
+  background:var(--bg);color:var(--text2);border:none;transition:all .2s;
+}
+.login-tab.active{background:var(--primary);color:#fff;}
+.tab-panel{display:none;}
+.tab-panel.active{display:block;}
+
+/* QR 2-screen layout */
+.qr-screen-label{margin-bottom:14px;}
+.qr-step-badge{
+  display:inline-block;padding:3px 12px;border-radius:20px;font-size:.72rem;font-weight:700;
+  background:var(--primary-lt);color:var(--primary);border:1px solid #C5CEFF;margin-bottom:6px;
+}
+.qr-step-badge.step2{background:var(--secondary-lt);color:var(--secondary);border-color:#FFBFCB;}
+.qr-screen-title{font-size:1rem;font-weight:700;color:var(--text);}
+.qr-screen-title span{color:var(--primary);}
+
+/* Scanned result box */
+.qr-result-box{
+  display:flex;align-items:center;gap:12px;
+  background:var(--accent-lt);border:1.5px solid #A7F3D0;border-radius:12px;
+  padding:12px 16px;margin-bottom:12px;
+}
+.qr-result-icon{font-size:1.4rem;}
+.qr-result-label{font-size:.74rem;color:var(--text2);font-weight:600;}
+.qr-result-val{font-size:1rem;font-weight:700;color:#065F46;}
+
+/* Username badge (step 2) */
+.qr-user-badge{
+  display:none;background:var(--accent-lt);border:1px solid #A7F3D0;border-radius:10px;
+  padding:9px 14px;margin-bottom:12px;font-size:.85rem;font-weight:700;color:#065F46;
+  text-align:center;
+}
+.qr-user-badge.show{display:flex;align-items:center;justify-content:center;gap:8px;}
+
+/* Buttons */
+.btn-qr-next{
+  width:100%;padding:12px;border:none;border-radius:11px;cursor:pointer;
+  font-family:'Kanit',sans-serif;font-size:.96rem;font-weight:700;
+  background:linear-gradient(135deg,var(--primary),#7C8CF8);color:#fff;
+  box-shadow:0 3px 14px rgba(79,110,247,.3);transition:all .2s;margin-top:4px;
+}
+.btn-qr-next:hover{transform:translateY(-2px);box-shadow:0 5px 20px rgba(79,110,247,.4);}
+.btn-qr-rescan,.btn-qr-back{
+  width:100%;padding:9px;border:1.5px solid var(--border);border-radius:10px;
+  background:var(--bg);color:var(--text2);
+  font-family:'Kanit',sans-serif;font-size:.85rem;font-weight:600;cursor:pointer;
+  margin-top:7px;transition:all .2s;
+}
+.btn-qr-rescan:hover,.btn-qr-back:hover{background:var(--bg2);color:var(--text);}
+
+/* QR scanner area */
+.qr-wrap{
+  border-radius:14px;overflow:hidden;background:#000;
+  position:relative;margin-bottom:12px;
+  min-height:250px;display:flex;align-items:center;justify-content:center;
+}
+#qr-reader{width:100%;}
+#qr-reader video{border-radius:0;}
+.qr-overlay{
+  position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  pointer-events:none;
+}
+.qr-frame{
+  width:170px;height:170px;
+  border:3px solid rgba(79,110,247,.0);
+  box-shadow:0 0 0 9999px rgba(0,0,0,.48);
+  position:relative;border-radius:4px;
+}
+.qr-frame::before,.qr-frame::after,
+.qr-corner-bl,.qr-corner-br{
+  content:'';position:absolute;width:24px;height:24px;border-color:#fff;border-style:solid;
+}
+.qr-frame::before{top:-3px;left:-3px;border-width:4px 0 0 4px;border-radius:4px 0 0 0;}
+.qr-frame::after{top:-3px;right:-3px;border-width:4px 4px 0 0;border-radius:0 4px 0 0;}
+.qr-corner-bl{bottom:-3px;left:-3px;border-width:0 0 4px 4px;border-radius:0 0 0 4px;}
+.qr-corner-br{bottom:-3px;right:-3px;border-width:0 4px 4px 0;border-radius:0 0 4px 0;}
+.qr-scan-line{
+  position:absolute;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--primary),transparent);
+  animation:scanMove 2s linear infinite;top:0;
+}
+@keyframes scanMove{0%{top:0%;}50%{top:calc(100% - 2px);}100%{top:0%;}}
+
+.qr-status{
+  padding:10px 14px;border-radius:10px;font-size:.84rem;font-weight:600;text-align:center;
+  margin-bottom:10px;display:none;
+}
+.qr-status.scanning{background:var(--primary-lt);color:var(--primary);border:1px solid #C5CEFF;display:block;}
+.qr-status.success {background:#E8FBF4;color:#065F46;border:1px solid #A7F3D0;display:block;}
+.qr-status.error   {background:#FFF1F1;color:#C62828;border:1px solid #FFCDD2;display:block;}
+.qr-status.warn    {background:#FFF4E5;color:#92400E;border:1px solid #FDE68A;display:block;}
+
+.qr-hint{font-size:.78rem;color:var(--text3);text-align:center;margin-top:8px;line-height:1.7;}
+.btn-qr-stop{
+  width:100%;padding:10px;border:1.5px solid var(--border);border-radius:10px;
+  background:var(--bg);color:var(--text2);
+  font-family:'Kanit',sans-serif;font-size:.88rem;font-weight:600;cursor:pointer;
+  margin-top:6px;transition:all .2s;display:none;
+}
+.btn-qr-stop:hover{background:var(--bg2);}
+.btn-qr-stop.show{display:block;}
+.btn-qr-reset{
+  width:100%;padding:9px;border:1.5px solid var(--border);border-radius:10px;
+  background:var(--bg);color:var(--text2);
+  font-family:'Kanit',sans-serif;font-size:.84rem;font-weight:600;cursor:pointer;
+  margin-top:6px;transition:all .2s;display:none;
+}
+.btn-qr-reset:hover{background:var(--bg2);}
+.btn-qr-reset.show{display:block;}
+
+
+/* ══ TOPBAR ══ */
+#app-page{display:none;min-height:100vh;}
+#app-page.show{display:block;}
+.topbar{
+  position:sticky;top:0;z-index:100;
+  background:rgba(255,255,255,.93);backdrop-filter:blur(14px);
+  border-bottom:1px solid var(--border);
+  padding:0 24px;height:62px;
+  display:flex;align-items:center;justify-content:space-between;
+  box-shadow:0 1px 8px rgba(79,110,247,.07);
+}
+.topbar-left{display:flex;align-items:center;gap:12px;min-width:0;}
+.tb-logo{
+  width:38px;height:38px;border-radius:11px;
+  background:linear-gradient(135deg,var(--primary),var(--secondary));
+  display:flex;align-items:center;justify-content:center;font-size:1.1rem;
+  box-shadow:0 2px 10px rgba(79,110,247,.25);flex-shrink:0;
+}
+.tb-title{font-size:.98rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.topbar-right{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.tb-info{font-size:.78rem;color:var(--text2);font-weight:500;}
+.badge{padding:3px 11px;border-radius:20px;font-size:.72rem;font-weight:700;white-space:nowrap;}
+.badge-admin{background:var(--secondary-lt);color:var(--secondary);border:1px solid #FFBFCB;}
+.badge-user{background:var(--primary-lt);color:var(--primary);border:1px solid #C5CEFF;}
+.badge-store{background:#FFF8E7;color:#B45309;border:1px solid #FDE68A;}
+.btn-logout{
+  padding:6px 14px;border-radius:9px;border:1.5px solid var(--border);
+  background:var(--card);color:var(--text2);
+  font-family:'Kanit',sans-serif;font-size:.8rem;font-weight:600;cursor:pointer;transition:all .2s;
+  white-space:nowrap;
+}
+.btn-logout:hover{background:var(--bg);color:var(--text);border-color:var(--primary);}
+/* Topbar rows */
+.topbar-main-row{
+  display:flex;align-items:center;justify-content:space-between;
+  width:100%;
+}
+/* Mobile topbar sub-row — hidden on desktop */
+.tb-subrow{display:none;}
+
+/* ══ CONTENT ══ */
+.content{max-width:1180px;margin:0 auto;padding:26px 20px 70px;}
+
+/* ══ ADMIN SHELL (sidebar + main) ══ */
+.admin-shell{display:flex;align-items:flex-start;gap:20px;}
+.admin-sidebar{
+  width:236px;flex-shrink:0;
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:14px;
+  display:flex;flex-direction:column;gap:5px;
+  position:sticky;top:20px;
+  animation:fadeUp .4s ease both;
+  transition:width .28s cubic-bezier(.4,0,.2,1),padding .28s cubic-bezier(.4,0,.2,1);
+}
+.admin-sidebar.collapsed{width:72px;padding:14px 10px;}
+.sidebar-header{
+  display:flex;align-items:center;justify-content:space-between;gap:6px;
+  padding:4px 7px 10px;
+}
+.admin-sidebar.collapsed .sidebar-header{justify-content:center;}
+.sidebar-title{
+  font-size:.74rem;font-weight:700;color:var(--text3);
+  text-transform:uppercase;letter-spacing:.06em;
+  white-space:nowrap;overflow:hidden;
+}
+.admin-sidebar.collapsed .sidebar-title{display:none;}
+.sidebar-toggle{
+  width:30px;height:30px;flex-shrink:0;border:none;border-radius:9px;
+  background:var(--bg);color:var(--text2);cursor:pointer;font-size:.8rem;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .2s,color .2s,transform .3s cubic-bezier(.4,0,.2,1);
+}
+.sidebar-toggle:hover{background:var(--primary-lt);color:var(--primary);}
+.admin-sidebar.collapsed .sidebar-toggle{transform:rotate(180deg);}
+.side-link{
+  display:flex;align-items:center;gap:11px;width:100%;text-align:left;
+  padding:11px 12px;border:none;border-radius:11px;background:transparent;
+  font-family:'Kanit',sans-serif;font-size:.88rem;font-weight:600;color:var(--text2);
+  cursor:pointer;transition:background .18s,color .18s;line-height:1.35;
+}
+.side-link:hover{background:var(--bg);color:var(--text);}
+.side-link.active{background:var(--primary-lt);color:var(--primary);}
+.side-ico{font-size:1.05rem;width:22px;text-align:center;flex-shrink:0;}
+.side-label{white-space:nowrap;overflow:hidden;}
+.admin-sidebar.collapsed .side-link{justify-content:center;padding:11px 0;}
+.admin-sidebar.collapsed .side-label{display:none;}
+.admin-main{flex:1;min-width:0;}
+.admin-view{display:none;flex-direction:column;}
+.admin-view.active{display:flex;}
+.admin-view > *{margin-bottom:18px;}
+.admin-view > *:last-child{margin-bottom:0;}
+
+/* Collapsible card (Filter & Export) */
+.ch-toggle{cursor:pointer;user-select:none;justify-content:space-between;}
+.ch-toggle .ch-left{display:flex;align-items:center;gap:10px;}
+.ch-chevron{
+  font-size:1rem;color:var(--text2);transition:transform .28s cubic-bezier(.4,0,.2,1);
+  flex-shrink:0;
+}
+.collapsible-card.collapsed .ch-chevron{transform:rotate(-90deg);}
+.collapsible-body{
+  overflow:hidden;max-height:1200px;
+  transition:max-height .35s cubic-bezier(.4,0,.2,1),opacity .25s ease;
+  opacity:1;
+}
+.collapsible-card.collapsed .collapsible-body{max-height:0;opacity:0;}
+
+/* Stats */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;}
+.sc{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:18px 20px;box-shadow:var(--shadow);animation:fadeUp .4s ease both;
+  display:flex;align-items:center;gap:13px;
+}
+.sc:nth-child(2){animation-delay:.06s;}.sc:nth-child(3){animation-delay:.12s;}.sc:nth-child(4){animation-delay:.18s;}
+.sc-ico{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.25rem;flex-shrink:0;}
+.s1 .sc-ico{background:var(--primary-lt);}
+.s2 .sc-ico{background:var(--secondary-lt);}
+.s3 .sc-ico{background:var(--accent-lt);}
+.s4 .sc-ico{background:#FFF4E5;}
+.sc-num{font-size:1.8rem;font-weight:700;line-height:1;}
+.sc-lbl{font-size:.73rem;color:var(--text2);margin-top:3px;font-weight:500;}
+.s1 .sc-num{color:var(--primary);}
+.s2 .sc-num{color:var(--secondary);}
+.s3 .sc-num{color:var(--accent);}
+.s4 .sc-num{color:#B45309;}
+
+/* Cards */
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:24px;margin-bottom:20px;box-shadow:var(--shadow);animation:fadeUp .45s ease .1s both;
+}
+.ch{display:flex;align-items:center;gap:10px;margin-bottom:20px;}
+.ch .bar{width:4px;height:22px;border-radius:4px;background:linear-gradient(180deg,var(--primary),var(--secondary));}
+.ch .bar-g{width:4px;height:22px;border-radius:4px;background:linear-gradient(180deg,#1D6F42,#2E9B5E);}
+.ch h2{font-size:.98rem;font-weight:700;}
+
+/* Form grids */
+.fg3{display:grid;gap:13px;grid-template-columns:155px 1fr 1fr;}
+.fg4{display:grid;gap:13px;grid-template-columns:1fr 1fr 1fr 1fr;margin-top:13px;}
+.fld label{display:block;font-size:.77rem;color:var(--text2);margin-bottom:5px;font-weight:600;}
+.fld input,.fld select{
+  width:100%;padding:10px 13px;border-radius:10px;
+  border:1.5px solid var(--border);background:#FAFBFF;color:var(--text);
+  font-family:'Kanit',sans-serif;font-size:.9rem;transition:border .2s,box-shadow .2s;
+}
+.fld input:focus,.fld select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(79,110,247,.09);}
+.fld select option{background:#fff;}
+.fld input[readonly]{background:var(--bg2);color:var(--text2);cursor:default;border-style:dashed;}
+
+.btn-row{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;}
+.btn{
+  padding:10px 22px;border-radius:10px;border:none;cursor:pointer;
+  font-family:'Kanit',sans-serif;font-size:.9rem;font-weight:700;transition:all .2s;
+  display:inline-flex;align-items:center;gap:6px;
+}
+.btn-primary{background:linear-gradient(135deg,var(--primary),#7C8CF8);color:#fff;box-shadow:0 3px 14px rgba(79,110,247,.28);}
+.btn-primary:hover{transform:translateY(-2px);box-shadow:0 5px 20px rgba(79,110,247,.4);}
+.btn-ghost{background:var(--bg);color:var(--text2);border:1.5px solid var(--border);}
+.btn-ghost:hover{background:var(--bg2);color:var(--text);}
+.btn-excel{background:linear-gradient(135deg,#1D6F42,#2E9B5E);color:#fff;box-shadow:0 3px 14px rgba(29,111,66,.22);}
+.btn-excel:hover{transform:translateY(-2px);box-shadow:0 5px 20px rgba(29,111,66,.38);}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none!important;}
+
+/* Export */
+.exp-row{display:grid;gap:13px;grid-template-columns:1fr 1fr 1fr auto;align-items:flex-end;}
+.exp-prev{margin-top:12px;padding:11px 15px;border-radius:10px;background:var(--excel-lt);border:1px solid #A8D8BC;font-size:.84rem;color:var(--excel);font-weight:600;display:none;}
+.exp-prev.show{display:flex;align-items:center;gap:7px;}
+.exp-hint{margin-top:8px;font-size:.76rem;color:var(--text3);}
+
+/* Toast */
+.toast{
+  position:fixed;top:70px;right:18px;z-index:9998;
+  padding:12px 18px;border-radius:12px;font-size:.86rem;font-weight:600;
+  max-width:380px;display:none;animation:slideIn .3s ease;box-shadow:0 4px 20px rgba(0,0,0,.12);
+}
+.toast.success{background:#E8FBF4;border:1px solid #A7F3D0;color:#065F46;}
+.toast.error  {background:#FFF1F1;border:1px solid #FECACA;color:#991B1B;}
+.toast.info   {background:var(--primary-lt);border:1px solid #C5CEFF;color:#3730A3;}
+
+/* Table */
+.tbl-card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);animation:fadeUp .5s ease .18s both;}
+.tbl-head{padding:15px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+.tbl-head h2{font-size:.98rem;font-weight:700;display:flex;align-items:center;gap:8px;}
+.srch{position:relative;}
+.srch input{padding:8px 13px 8px 34px;border-radius:9px;border:1.5px solid var(--border);background:#FAFBFF;color:var(--text);font-family:'Kanit',sans-serif;font-size:.84rem;width:220px;transition:border .2s;}
+.srch input:focus{outline:none;border-color:var(--primary);}
+.srch .si{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:.88rem;}
+.tbl-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:.87rem;}
+thead tr{background:var(--bg);}
+th{padding:11px 14px;text-align:left;font-weight:700;font-size:.73rem;color:var(--text2);white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
+td{padding:12px 14px;border-top:1px solid var(--border);white-space:nowrap;color:var(--text);}
+tbody tr:hover{background:#F8F9FF;}
+.pill{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.74rem;font-weight:700;}
+.pill-นาย{background:#EEF6FF;color:#1D6FB5;border:1px solid #BFDBFE;}
+.pill-นางสาว{background:#FDF2FA;color:#9B2C8B;border:1px solid #F5C6EE;}
+.pill-นาง{background:#FFF8E7;color:#B45309;border:1px solid #FDE68A;}
+.pill-store{background:#F0FDF4;color:#166534;border:1px solid #BBF7D0;font-size:.72rem;}
+.abt{padding:5px 12px;border-radius:8px;font-family:'Kanit',sans-serif;font-size:.76rem;font-weight:700;cursor:pointer;border:none;transition:all .15s;}
+.abt-edit{background:var(--primary-lt);color:var(--primary);border:1px solid #C5CEFF;}
+.abt-edit:hover{background:#D8DEFF;}
+.abt-del{background:var(--secondary-lt);color:var(--secondary);border:1px solid #FFBFCB;margin-left:5px;}
+.abt-del:hover{background:#FFD6DE;}
+.no-data{padding:42px;text-align:center;color:var(--text3);font-size:.88rem;}
+
+/* Modal */
+.mo{position:fixed;inset:0;background:rgba(26,29,46,.45);backdrop-filter:blur(5px);z-index:200;display:none;align-items:center;justify-content:center;padding:20px;}
+.mo.open{display:flex;}
+.mo-box{background:var(--card);border:1px solid var(--border);border-radius:20px;padding:28px;width:100%;max-width:480px;box-shadow:0 12px 40px rgba(79,110,247,.2);animation:fadeUp .3s ease;}
+.mo-box h3{font-size:1rem;font-weight:700;margin-bottom:20px;}
+.mo-box .fld{margin-bottom:13px;}
+.mo-btns{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;}
+
+/* Confirm dialog */
+.confirm-overlay{position:fixed;inset:0;background:rgba(26,29,46,.5);backdrop-filter:blur(4px);z-index:300;display:none;align-items:center;justify-content:center;padding:20px;}
+.confirm-overlay.open{display:flex;}
+.confirm-box{background:var(--card);border-radius:18px;padding:26px;max-width:380px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.2);animation:fadeUp .25s ease;}
+.confirm-box h4{font-size:1rem;font-weight:700;margin-bottom:10px;}
+.confirm-box p{font-size:.88rem;color:var(--text2);margin-bottom:20px;line-height:1.6;}
+.confirm-btns{display:flex;gap:10px;justify-content:flex-end;}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(18px);}to{opacity:1;transform:translateY(0);}}
+@keyframes slideIn{from{opacity:0;transform:translateX(18px);}to{opacity:1;transform:translateX(0);}}
+
+/* Responsive */
+@media(max-width:780px){
+  .exp-row{grid-template-columns:1fr 1fr;}.exp-row .btn-excel{grid-column:span 2;}
+  .dash-filter-row{grid-template-columns:1fr 1fr;}.dash-filter-row .btn{grid-column:span 2;}
+  .fg4{grid-template-columns:1fr 1fr;}
+  .admin-shell{flex-direction:column;gap:14px;}
+  .admin-sidebar{
+    width:100%;flex-direction:row;overflow-x:auto;position:static;
+    padding:8px;gap:6px;-webkit-overflow-scrolling:touch;
+  }
+  .admin-sidebar.collapsed{width:100%;padding:8px;}
+  .sidebar-header,.sidebar-toggle{display:none;}
+  .sidebar-title{display:none;}
+  .side-link{flex:1 0 auto;justify-content:center;white-space:nowrap;padding:10px 14px;}
+  .admin-sidebar.collapsed .side-link{justify-content:center;padding:10px 14px;}
+  .admin-sidebar.collapsed .side-label{display:inline;}
+}
+@media(max-width:640px){
+  .fg3,.fg4{grid-template-columns:1fr;}
+  .stats-row{grid-template-columns:1fr 1fr;}
+  .content{padding:14px 10px 60px;}
+  .card{padding:18px 14px;}
+  .btn-row{flex-direction:column;}.btn{width:100%;justify-content:center;}
+  .srch input{width:100%;}
+  .tbl-head{flex-direction:column;align-items:stretch;}
+  .login-box{padding:28px 18px;}
+  .exp-row{grid-template-columns:1fr;}.exp-row .btn-excel{grid-column:span 1;}
+  .dash-filter-row{grid-template-columns:1fr;}.dash-filter-row .btn{grid-column:span 1;width:100%;justify-content:center;}
+  /* Topbar: 2-row layout on mobile */
+  .topbar{
+    height:auto;padding:10px 14px;
+    flex-direction:column;align-items:stretch;gap:0;
+  }
+  .topbar-main-row{
+    display:flex;align-items:center;justify-content:space-between;width:100%;
+  }
+  .tb-title{font-size:.9rem;}
+  .tb-info{display:none;}
+  .topbar-right{display:none !important;}
+  .tb-subrow{
+    display:flex;align-items:center;justify-content:flex-end;
+    gap:6px;margin-top:8px;padding-top:8px;
+    border-top:1px solid var(--border);
+  }
+}
+/* ══ DASHBOARD ══ */
+.dash-hero{
+  background:linear-gradient(135deg,var(--primary) 0%,#7C8CF8 55%,var(--secondary) 100%);
+  border-radius:var(--radius);padding:24px 26px;color:#fff;
+  display:flex;align-items:center;justify-content:space-between;gap:18px;flex-wrap:wrap;
+  box-shadow:0 8px 28px rgba(79,110,247,.28);animation:fadeUp .4s ease both;position:relative;overflow:hidden;
+}
+.dash-hero::after{
+  content:'';position:absolute;right:-60px;top:-60px;width:200px;height:200px;border-radius:50%;
+  background:rgba(255,255,255,.08);
+}
+.dash-hero-text h1{font-size:1.25rem;font-weight:700;margin-bottom:5px;}
+.dash-hero-text p{font-size:.84rem;opacity:.92;}
+.dash-clock{
+  background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.3);border-radius:14px;
+  padding:12px 20px;text-align:center;backdrop-filter:blur(6px);min-width:160px;position:relative;z-index:1;
+}
+.dash-clock .dc-time{font-size:1.5rem;font-weight:700;letter-spacing:.03em;font-family:'Kanit',sans-serif;}
+.dash-clock .dc-lbl{font-size:.72rem;opacity:.9;margin-top:3px;font-weight:600;}
+.dash-clock.late .dc-time{color:#FFE3EA;}
+.dash-clock .dc-status{
+  display:inline-block;margin-top:6px;padding:2px 10px;border-radius:20px;font-size:.7rem;font-weight:700;
+  background:rgba(255,255,255,.22);
+}
+
+/* Dashboard filter bar */
+.dash-filter-row{display:grid;gap:13px;grid-template-columns:1fr 1fr 1fr auto;align-items:flex-end;}
+.dash-filter-hint{margin-top:10px;font-size:.78rem;color:var(--text2);font-weight:500;}
+
+/* KPI grid */
+.kpi-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin:20px 0;}
+.kpi{
+  background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
+  padding:16px 16px;box-shadow:var(--shadow);animation:fadeUp .4s ease both;
+  display:flex;flex-direction:column;gap:10px;
+}
+.kpi-top{display:flex;align-items:center;justify-content:space-between;}
+.kpi-ico{width:38px;height:38px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;}
+.kpi-num{font-size:1.65rem;font-weight:700;line-height:1;}
+.kpi-lbl{font-size:.73rem;color:var(--text2);font-weight:500;}
+.k1 .kpi-ico{background:var(--primary-lt);} .k1 .kpi-num{color:var(--primary);}
+.k2 .kpi-ico{background:var(--accent-lt);}  .k2 .kpi-num{color:var(--accent);}
+.k3 .kpi-ico{background:#EFE9FF;}            .k3 .kpi-num{color:#7C3AED;}
+.k4 .kpi-ico{background:#E8FBF4;}            .k4 .kpi-num{color:#059669;}
+.k5 .kpi-ico{background:var(--secondary-lt);}.k5 .kpi-num{color:var(--secondary);}
+.k6 .kpi-ico{background:#FFF4E5;}            .k6 .kpi-num{color:#B45309;}
+
+/* Charts row */
+.dash-row{display:grid;grid-template-columns:1fr 1.4fr;gap:18px;margin-bottom:20px;align-items:stretch;}
+.chart-card{display:flex;flex-direction:column;}
+.chart-wrap{position:relative;height:230px;}
+.chart-wrap canvas{max-height:100%;}
+
+/* Status badges (on-time / late) */
+.badge-ontime,.badge-late{
+  display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;
+  font-size:.72rem;font-weight:700;white-space:nowrap;
+}
+.badge-ontime{background:var(--accent-lt);color:#047857;border:1px solid #A7F3D0;}
+.badge-late{background:var(--secondary-lt);color:var(--secondary);border:1px solid #FFBFCB;}
+
+/* Rate bar (store breakdown) */
+.rate-cell{display:flex;align-items:center;gap:8px;min-width:140px;}
+.rate-bar{flex:1;height:7px;border-radius:6px;background:var(--bg2);overflow:hidden;}
+.rate-bar-fill{height:100%;border-radius:6px;background:linear-gradient(90deg,#FDBA74,var(--secondary));transition:width .4s ease;}
+.rate-txt{font-size:.74rem;font-weight:700;color:var(--text2);white-space:nowrap;}
+
+/* Responsive */
+@media(max-width:1024px){
+  .kpi-grid{grid-template-columns:repeat(3,1fr);}
+  .dash-row{grid-template-columns:1fr;}
+}
+@media(max-width:640px){
+  .kpi-grid{grid-template-columns:1fr 1fr;}
+  .dash-hero{flex-direction:column;align-items:flex-start;}
+  .dash-clock{width:100%;}
+}
+@media(max-width:380px){
+  .kpi-grid{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<!-- ══ LOADING ══ -->
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="loading-txt">กำลังเชื่อมต่อ Firebase...</div>
+</div>
+
+<!-- ══ LOGIN ══ -->
+<div id="login-page">
+  <div class="login-box">
+    <div class="login-logo">
+      <div class="icon">📋</div>
+      <h1>ระบบบันทึกข้อมูล</h1>
+      <p>กรุณาเข้าสู่ระบบเพื่อใช้งาน</p>
+    </div>
+
+    <!-- Tabs -->
+    <div class="login-tabs">
+      <button class="login-tab active" onclick="switchTab('manual')">🔑 กรอกรหัสผ่าน</button>
+      <button class="login-tab" onclick="switchTab('qr')">📷 สแกน QR Code</button>
+    </div>
+
+    <!-- Tab: Manual -->
+    <div class="tab-panel active" id="tab-manual">
+      <div class="fg">
+        <label>ชื่อผู้ใช้</label>
+        <input type="text" id="lu" placeholder="กรอกชื่อผู้ใช้" autocomplete="off"/>
+      </div>
+      <div class="fg">
+        <label>รหัสผ่าน</label>
+        <input type="password" id="lp" placeholder="กรอกรหัสผ่าน"/>
+      </div>
+      <button class="btn-login" onclick="doLogin()">เข้าสู่ระบบ</button>
+      <div class="login-err" id="lerr">⚠️ ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง</div>
+    </div>
+
+    <!-- Tab: QR Scan -->
+    <div class="tab-panel" id="tab-qr">
+
+      <!-- ── SCREEN 1: Scan Username ── -->
+      <div id="qr-screen-1">
+        <div class="qr-screen-label">
+          <div class="qr-step-badge">ขั้นตอนที่ 1 / 2</div>
+          <div class="qr-screen-title">สแกน QR <span>ชื่อผู้ใช้</span></div>
+        </div>
+
+        <div class="qr-status" id="qr-status-1">กำลังเปิดกล้อง...</div>
+
+        <div class="qr-wrap" id="qr-wrap-1">
+          <div id="qr-reader"></div>
+          <div class="qr-overlay">
+            <div class="qr-frame">
+              <div class="qr-corner-bl"></div>
+              <div class="qr-corner-br"></div>
+              <div class="qr-scan-line" id="qr-scanline-1"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="qr-result-box" id="qr-result-user" style="display:none;">
+          <span class="qr-result-icon">👤</span>
+          <div>
+            <div class="qr-result-label">ชื่อผู้ใช้ที่สแกนได้</div>
+            <div class="qr-result-val" id="qr-result-user-txt"></div>
+          </div>
+        </div>
+
+        <button class="btn-qr-next" id="btn-qr-next" onclick="goToStep2()" style="display:none;">
+          ถัดไป →
+        </button>
+        <button class="btn-qr-rescan" onclick="rescanUser()">🔄 สแกนใหม่</button>
+        <p class="qr-hint">📋 นำ QR <b>ชื่อผู้ใช้</b> ของสาขาคุณมาส่องกล้อง</p>
+      </div>
+
+      <!-- ── SCREEN 2: Scan Password ── -->
+      <div id="qr-screen-2" style="display:none;">
+        <div class="qr-screen-label">
+          <div class="qr-step-badge step2">ขั้นตอนที่ 2 / 2</div>
+          <div class="qr-screen-title">สแกน QR <span>รหัสผ่าน</span></div>
+        </div>
+
+        <div class="qr-user-badge show" id="qr-badge-s2"></div>
+
+        <div class="qr-status" id="qr-status-2">กำลังเปิดกล้อง...</div>
+
+        <div class="qr-wrap" id="qr-wrap-2">
+          <div id="qr-reader-2" style="width:100%;"></div>
+          <div class="qr-overlay">
+            <div class="qr-frame">
+              <div class="qr-corner-bl"></div>
+              <div class="qr-corner-br"></div>
+              <div class="qr-scan-line" id="qr-scanline-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn-qr-back" onclick="backToStep1()">← ย้อนกลับ</button>
+        <p class="qr-hint">🔑 นำ QR <b>รหัสผ่าน</b> ของสาขาคุณมาส่องกล้อง</p>
+      </div>
+
+    </div>
+
+  </div>
+</div>
+
+<!-- ══ APP ══ -->
+<div id="app-page">
+  <div class="topbar">
+    <!-- Desktop row -->
+    <div class="topbar-main-row">
+      <div class="topbar-left">
+        <div class="tb-logo">📋</div>
+        <span class="tb-title">ระบบบันทึกชื่อ-นามสกุล</span>
+      </div>
+      <div class="topbar-right">
+        <span><span class="online-dot" id="conn-dot"></span><span id="conn-txt" style="font-size:.75rem;color:var(--text2);"></span></span>
+        <span class="tb-info" id="tb-name"></span>
+        <span class="badge" id="tb-role"></span>
+        <span class="badge badge-store" id="tb-store" style="display:none;"></span>
+        <button class="btn-logout" onclick="doLogout()">ออกจากระบบ</button>
+      </div>
+    </div>
+    <!-- Mobile sub-row: badges + logout aligned right -->
+    <div class="tb-subrow">
+      <span><span class="online-dot" id="conn-dot-m"></span><span id="conn-txt-m" style="font-size:.73rem;color:var(--text2);"></span></span>
+      <span class="badge" id="tb-role-m"></span>
+      <span class="badge badge-store" id="tb-store-m" style="display:none;"></span>
+      <button class="btn-logout" onclick="doLogout()" style="padding:5px 12px;font-size:.78rem;">ออกจากระบบ</button>
+    </div>
+  </div>
+
+  <div class="content">
+
+    <div class="admin-shell">
+      <!-- Sidebar (Admin only) -->
+      <nav class="admin-sidebar" id="admin-sidebar" style="display:none;">
+        <div class="sidebar-header">
+          <div class="sidebar-title">📂 เมนูผู้ดูแล</div>
+          <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()" title="ย่อ/ขยายเมนู">◀</button>
+        </div>
+        <button class="side-link" data-view="dashboard" onclick="switchAdminView('dashboard')" title="แดชบอร์ดสรุปภาพรวม">
+          <span class="side-ico">🚀</span><span class="side-label">แดชบอร์ดสรุปภาพรวม</span>
+        </button>
+        <button class="side-link active" data-view="table" onclick="switchAdminView('table')" title="รายการข้อมูล &amp; Export Excel">
+          <span class="side-ico">📊</span><span class="side-label">รายการข้อมูล &amp; Export Excel</span>
+        </button>
+        <button class="side-link" data-view="reset" onclick="switchAdminView('reset')" title="รีเซ็ตการลงทะเบียน User (HT)">
+          <span class="side-ico">🔧</span><span class="side-label">รีเซ็ตการลงทะเบียน User (HT)</span>
+        </button>
+      </nav>
+
+      <div class="admin-main">
+
+        <!-- VIEW: Dashboard -->
+        <div class="admin-view" id="view-dashboard">
+
+          <div class="dash-hero">
+            <div class="dash-hero-text">
+              <h1>👋 สวัสดี, <span id="dash-greet-name"></span></h1>
+              <p id="dash-greet-date"></p>
+            </div>
+            <div class="dash-clock" id="dash-clock">
+              <div class="dc-time" id="dc-time">--:--:--</div>
+              <div class="dc-lbl">เวลาประเทศไทย (Asia/Bangkok)</div>
+              <div class="dc-status" id="dc-status">เกณฑ์ "มาสาย" หลัง 20:00 น.</div>
+            </div>
+          </div>
+
+          <div class="card dash-filter-card">
+            <div class="ch"><div class="bar"></div><h2>🔍 ตัวกรองข้อมูล Dashboard</h2></div>
+            <div class="dash-filter-row">
+              <div class="fld">
+                <label>สาขา</label>
+                <select id="dash-store-filter" onchange="renderDashboard()">
+                  <option value="">— ทุกสาขา —</option>
+                </select>
+              </div>
+              <div class="fld">
+                <label>วันที่เริ่มต้น</label>
+                <input type="date" id="dash-from" onchange="renderDashboard()"/>
+              </div>
+              <div class="fld">
+                <label>วันที่สิ้นสุด</label>
+                <input type="date" id="dash-to" onchange="renderDashboard()"/>
+              </div>
+              <div class="fld">
+                <label style="visibility:hidden;">x</label>
+                <button class="btn btn-ghost" onclick="resetDashFilter()">↺ ล้างตัวกรอง</button>
+              </div>
+            </div>
+            <div class="dash-filter-hint" id="dash-filter-hint"></div>
+          </div>
+
+          <div class="kpi-grid">
+            <div class="kpi k1"><div class="kpi-top"><span class="kpi-ico">📋</span></div><div class="kpi-num" id="dk-total">0</div><div class="kpi-lbl">รายการทั้งหมด</div></div>
+            <div class="kpi k2"><div class="kpi-top"><span class="kpi-ico">📅</span></div><div class="kpi-num" id="dk-today">0</div><div class="kpi-lbl">บันทึกวันนี้</div></div>
+            <div class="kpi k3"><div class="kpi-top"><span class="kpi-ico">📆</span></div><div class="kpi-num" id="dk-month">0</div><div class="kpi-lbl">เดือนนี้</div></div>
+            <div class="kpi k4"><div class="kpi-top"><span class="kpi-ico">✅</span></div><div class="kpi-num" id="dk-ontime">0</div><div class="kpi-lbl">ตรงเวลา (ก่อน/ถึง 20:00)</div></div>
+            <div class="kpi k5"><div class="kpi-top"><span class="kpi-ico">🌙</span></div><div class="kpi-num" id="dk-late">0</div><div class="kpi-lbl">มาสาย (หลัง 20:00)</div></div>
+            <div class="kpi k6"><div class="kpi-top"><span class="kpi-ico">📊</span></div><div class="kpi-num" id="dk-rate">0%</div><div class="kpi-lbl">อัตรามาสายรวม</div></div>
+          </div>
+
+          <div class="dash-row">
+            <div class="card chart-card">
+              <div class="ch"><div class="bar"></div><h2>⏰ สัดส่วนตรงเวลา / มาสาย</h2></div>
+              <div class="chart-wrap"><canvas id="chart-ontime"></canvas></div>
+            </div>
+            <div class="card chart-card">
+              <div class="ch"><div class="bar"></div><h2>📈 จำนวนลงทะเบียนตามช่วงเวลา (รายชั่วโมง)</h2></div>
+              <div class="chart-wrap"><canvas id="chart-hourly"></canvas></div>
+            </div>
+          </div>
+
+          <div class="card" id="dash-store-card">
+            <div class="ch"><div class="bar"></div><h2>🏪 สรุปการมาสายแยกตามสาขา</h2></div>
+            <div class="tbl-wrap"><table>
+              <thead><tr>
+                <th>สาขา</th><th style="text-align:center;">ทั้งหมด</th><th style="text-align:center;">ตรงเวลา</th><th style="text-align:center;">มาสาย</th><th>อัตรามาสาย</th>
+              </tr></thead>
+              <tbody id="dash-store-body"><tr><td colspan="5" class="no-data">⏳ กำลังโหลดข้อมูล...</td></tr></tbody>
+            </table></div>
+          </div>
+
+          <div class="tbl-card">
+            <div class="tbl-head"><h2>🌙 รายการมาสายล่าสุด (เกินเวลา 20:00 น.)</h2></div>
+            <div class="tbl-wrap"><table>
+              <thead><tr>
+                <th>คำนำหน้า</th><th>ชื่อ-นามสกุล</th><th>User</th><th>สาขา</th><th>วันที่/เวลา (TH)</th><th>สถานะ</th>
+              </tr></thead>
+              <tbody id="dash-late-body"><tr><td colspan="6" class="no-data">⏳ กำลังโหลดข้อมูล...</td></tr></tbody>
+            </table></div>
+          </div>
+
+        </div><!-- /view-dashboard -->
+
+        <!-- VIEW: รายการทั้งหมด -->
+        <div class="admin-view active" id="view-table">
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="sc s1"><div class="sc-ico">📋</div><div><div class="sc-num" id="st0">0</div><div class="sc-lbl" id="stl0">รายการทั้งหมด</div></div></div>
+      <div class="sc s2"><div class="sc-ico">📅</div><div><div class="sc-num" id="st1">0</div><div class="sc-lbl">บันทึกวันนี้</div></div></div>
+      <div class="sc s3"><div class="sc-ico">📆</div><div><div class="sc-num" id="st2">0</div><div class="sc-lbl">เดือนนี้</div></div></div>
+      <div class="sc s4"><div class="sc-ico">🌙</div><div><div class="sc-num" id="st3">0</div><div class="sc-lbl">มาสายวันนี้ (หลัง 20:00)</div></div></div>
+    </div>
+
+    <!-- Form -->
+    <div class="card" id="form-card">
+      <div class="ch"><div class="bar"></div><h2>กรอกข้อมูลชื่อ-นามสกุล</h2></div>
+      <div class="fg3">
+        <div class="fld">
+          <label>คำนำหน้า <span style="color:var(--secondary)">*</span></label>
+          <select id="fp">
+            <option value="">-- เลือก --</option>
+            <option>นาย</option><option>นางสาว</option><option>นาง</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>ชื่อ <span style="color:var(--secondary)">*</span></label>
+          <input type="text" id="ff" placeholder="กรอกชื่อ" maxlength="100"/>
+        </div>
+        <div class="fld">
+          <label>นามสกุล <span style="color:var(--secondary)">*</span></label>
+          <input type="text" id="fl" placeholder="กรอกนามสกุล" maxlength="100"/>
+        </div>
+      </div>
+      <div class="fg4">
+        <div class="fld">
+          <label>สาขา <span style="color:var(--secondary)">*</span></label>
+          <select id="fstore" onchange="startHTListen(this.value)"></select>
+        </div>
+        <div class="fld">
+          <label>User <span style="color:var(--secondary)">*</span></label>
+          <select id="fuser"><option value="">-- เลือก --</option></select>
+        </div>
+        <div class="fld">
+          <label>วันที่บันทึก</label>
+          <input type="text" id="fdate" readonly/>
+        </div>
+        <div class="fld">
+          <label>บันทึกโดย</label>
+          <input type="text" id="fby" readonly/>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-save" onclick="saveRec()">💾 บันทึกข้อมูล</button>
+        <button class="btn btn-ghost"   onclick="clearForm()">🗑 ล้างแบบฟอร์ม</button>
+      </div>
+    </div>
+
+    <!-- Filter & Export (merged) -->
+    <div class="card collapsible-card" id="exp-card">
+      <div class="ch ch-toggle" onclick="toggleExportPanel()">
+        <div class="ch-left"><div class="bar-g"></div><h2>📤 ตัวกรองรายการ &amp; Export Excel</h2></div>
+        <span class="ch-chevron" id="exp-chevron">▾</span>
+      </div>
+      <div class="collapsible-body" id="exp-body">
+        <div class="exp-row">
+          <div class="fld">
+            <label>สาขา (ทั้งหมด = ไม่เลือก)</label>
+            <select id="exp-store" onchange="updatePrev();renderTbl()">
+              <option value="">— ทุกสาขา —</option>
+            </select>
+          </div>
+          <div class="fld">
+            <label>วันที่เริ่มต้น</label>
+            <input type="date" id="exp-from" onchange="updatePrev();renderTbl()"/>
+          </div>
+          <div class="fld">
+            <label>วันที่สิ้นสุด</label>
+            <input type="date" id="exp-to" onchange="updatePrev();renderTbl()"/>
+          </div>
+          <div class="fld">
+            <label style="visibility:hidden;">x</label>
+            <button class="btn btn-excel" onclick="exportExcel()">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+              Export Excel
+            </button>
+          </div>
+        </div>
+        <div class="exp-prev" id="exp-prev"><span>📊</span><span id="prev-txt"></span></div>
+        <div class="exp-hint">💡 ตัวกรองนี้มีผลกับทั้งตารางด้านล่างและไฟล์ Export Excel — หากไม่เลือกสาขาหรือวันที่ จะใช้ข้อมูลทั้งหมด</div>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="tbl-card">
+      <div class="tbl-head">
+        <h2>📋 รายการ <span style="color:var(--primary)">(<span id="tbl-cnt">0</span>)</span></h2>
+        <div class="srch"><span class="si">🔍</span>
+          <input type="text" id="srch" placeholder="ค้นหาชื่อ / สาขา..." oninput="renderTbl()"/>
+        </div>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr>
+            <th>#</th><th>คำนำหน้า</th><th>ชื่อ</th><th>นามสกุล</th>
+            <th>User</th><th>สาขา</th><th>วันที่บันทึก</th><th>วันที่/เวลา บันทึกเข้าระบบ (TH)</th><th>บันทึกโดย</th><th>สถานะ</th>
+            <th id="act-col" style="display:none;">จัดการ</th>
+          </tr></thead>
+          <tbody id="tbl-body"><tr><td colspan="11" class="no-data">⏳ กำลังโหลดข้อมูล...</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+        </div><!-- /view-table -->
+
+        <!-- VIEW: HT Reset -->
+        <div class="admin-view" id="view-reset">
+    <div class="card" id="ht-reset-card">
+      <div class="ch"><div class="bar-g"></div><h2>🔧 รีเซ็ตการลงทะเบียน User (HT)</h2></div>
+      <div class="exp-row">
+        <div class="fld">
+          <label>สาขา</label>
+          <select id="reset-store">
+            <option value="">— ทุกสาขา (สแกนทั้งหมด) —</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label>วันที่ตรวจสอบ</label>
+          <input type="date" id="reset-date"/>
+        </div>
+        <div class="fld">
+          <label style="visibility:hidden;">x</label>
+          <button class="btn btn-primary" onclick="loadHTReset()">🔍 ตรวจสอบ</button>
+        </div>
+      </div>
+      <div class="exp-hint">💡 ใช้เครื่องมือนี้เมื่อสาขา/ผู้ใช้ไม่สามารถเลือก User (HT1-HT120) บางตัวได้ ทั้งที่ไม่มีรายชื่อผูกอยู่ในตารางจริง — ระบบจะตรวจหา "การจองค้าง" (HT ที่ถูกจองไว้แต่ไม่มีข้อมูลรองรับ หรือข้อมูลไม่ตรงกัน) แล้วให้ปลดล็อกเพื่อให้ลงทะเบียนใหม่ได้ทันที (ไม่กระทบรายชื่อที่บันทึกไว้แล้ว)</div>
+      <div id="ht-reset-result"></div>
+    </div>
+        </div><!-- /view-reset -->
+
+      </div><!-- /admin-main -->
+    </div><!-- /admin-shell -->
+
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Edit Modal -->
+<div class="mo" id="modal">
+  <div class="mo-box">
+    <h3>✏️ แก้ไขข้อมูล</h3>
+    <div class="fld"><label>คำนำหน้า</label>
+      <select id="mp"><option>นาย</option><option>นางสาว</option><option>นาง</option></select>
+    </div>
+    <div class="fld"><label>ชื่อ</label><input type="text" id="mf" maxlength="100"/></div>
+    <div class="fld"><label>นามสกุล</label><input type="text" id="ml" maxlength="100"/></div>
+    <div class="fld"><label>User</label><select id="muser"></select></div>
+    <div class="fld"><label>สาขา</label><select id="ms"></select></div>
+    <div class="mo-btns">
+      <button class="btn btn-ghost" onclick="closeModal()">ยกเลิก</button>
+      <button class="btn btn-primary" onclick="saveEdit()">💾 บันทึก</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Dialog -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-box">
+    <h4>⚠️ ยืนยันการลบ</h4>
+    <p id="confirm-msg"></p>
+    <div class="confirm-btns">
+      <button class="btn btn-ghost" onclick="closeConfirm()">ยกเลิก</button>
+      <button class="btn" id="confirm-ok" style="background:#E53935;color:#fff;">🗑 ลบ</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════
+   FIREBASE CONFIG
+   ══════════════════════════════════════════════════════ */
+const firebaseConfig = {
+  apiKey:            "AIzaSyBrawht7dvGn6sqxpAP_fSGRS0Jgj6b-VM",
+  authDomain:        "dada-pro.firebaseapp.com",
+  databaseURL:       "https://dada-pro-default-rtdb.asia-southeast1.firebasedatabase.app/",
+  projectId:         "dada-pro",
+  storageBucket:     "dada-pro.firebasestorage.app",
+  messagingSenderId: "301873007650",
+  appId:             "1:301873007650:web:51bbbdfaae1f591a2c4e7b",
+  measurementId:     "G-MX840KM5QY"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db      = firebase.database();
+const recRef  = db.ref('name_records');   // path in Realtime DB
+const htRef   = db.ref('ht_claims');      // path: ht_claims/{iso-date}/{HTxx} = recordKey
+
+/* ══ HT USERS (HT1 - HT120) ══ */
+const HT_USERS = Array.from({length:120}, (_,i) => `HT${i+1}`);
+
+/* ══════════════════════════════════════════════════════
+   ACCOUNTS (200 stores + admin)
+   ══════════════════════════════════════════════════════ */
+const STORES   = Array.from({length:200}, (_,i) => `Store${String(i+1).padStart(3,'0')}`);
+const ACCOUNTS = { Admin:{ pass:'inv12345', role:'admin', display:'ผู้ดูแลระบบ', store:null } };
+STORES.forEach(s => { ACCOUNTS[s] = { pass:s.toLowerCase(), role:'user', display:`ผู้ใช้ ${s}`, store:s }; });
+
+/* ══ APP STATE ══ */
+let records     = {};   // key → record object (from Firebase)
+let htClaims    = {};   // HTxx → recordKey (today's claims, live)
+let currentUser = null;
+let editKey     = null;
+let unsubscribe = null; // Firebase listener cleanup
+let htUnsub     = null; // HT claims listener cleanup
+let htStore     = null; // store whose HT claims we are currently listening to
+
+/* ══ DASHBOARD STATE ══ */
+let dashboardActive = false;
+let chartOnTime  = null;
+let chartHourly  = null;
+let clockTimer   = null;
+
+/* ══════════════════════════════════════════════════════
+   DATE HELPERS
+   ══════════════════════════════════════════════════════ */
+const MONTHS = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+function todayStr(){
+  const d=new Date();
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()+543}`;
+}
+function todayISO(){
+  const d=new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function isoThai(iso){
+  if(!iso) return '';
+  const [y,m,d]=iso.split('-');
+  return `${parseInt(d)} ${MONTHS[parseInt(m)-1]} ${parseInt(y)+543}`;
+}
+/* Convert a record's ts (ms epoch) → Thai date+time string,
+   always rendered in Thailand timezone (Asia/Bangkok)
+   regardless of the viewer's device timezone. */
+function tsToThai(ts){
+  if(!ts) return '—';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    day: '2-digit', month: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).formatToParts(new Date(ts));
+  const g = type => parts.find(p => p.type === type)?.value || '';
+  const day = parseInt(g('day'), 10);
+  const mon = parseInt(g('month'), 10);
+  const yr  = parseInt(g('year'), 10) + 543;
+  return `${day} ${MONTHS[mon-1]} ${yr} ${g('hour')}:${g('minute')}:${g('second')}`;
+}
+
+/* ══════════════════════════════════════════════════════
+   LATE-CHECK-IN HELPERS
+   "มาสาย" = บันทึก/ลงทะเบียนหลังเวลา 20:00:00 น. (เวลาประเทศไทย)
+   ══════════════════════════════════════════════════════ */
+const LATE_CUTOFF_SECONDS = 20 * 3600; // 20:00:00
+function bangkokParts(ts){
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  }).formatToParts(new Date(ts));
+  const g = type => parseInt(parts.find(p => p.type === type)?.value || '0', 10);
+  return { hour: g('hour'), minute: g('minute'), second: g('second') };
+}
+function bangkokSecondsOfDay(ts){
+  const p = bangkokParts(ts);
+  return p.hour*3600 + p.minute*60 + p.second;
+}
+function isLateRecord(ts){
+  if(!ts) return false;
+  return bangkokSecondsOfDay(ts) > LATE_CUTOFF_SECONDS;
+}
+
+/* ══════════════════════════════════════════════════════
+   CONNECTION STATUS
+   ══════════════════════════════════════════════════════ */
+db.ref('.info/connected').on('value', snap => {
+  const online = snap.val() === true;
+  const cls = 'online-dot ' + (online ? 'on' : 'off');
+  const txt = online ? 'ออนไลน์' : 'ออฟไลน์';
+  document.getElementById('conn-dot').className   = cls;
+  document.getElementById('conn-txt').textContent  = txt;
+  document.getElementById('conn-dot-m').className  = cls;
+  document.getElementById('conn-txt-m').textContent = txt;
+});
+
+/* ══════════════════════════════════════════════════════
+   STORE DROPDOWNS
+   ══════════════════════════════════════════════════════ */
+function buildStoreDropdowns(isAdmin, userStore){
+  const fstore = document.getElementById('fstore');
+  if(isAdmin){
+    fstore.innerHTML = '<option value="">-- เลือกสาขา --</option>' +
+      STORES.map(s=>`<option>${s}</option>`).join('');
+    fstore.disabled = false;
+  } else {
+    fstore.innerHTML = `<option value="${userStore}">${userStore}</option>`;
+    fstore.disabled  = true;
+  }
+  const expStore = document.getElementById('exp-store');
+  if(isAdmin){
+    expStore.innerHTML = '<option value="">— ทุกสาขา —</option>' + STORES.map(s=>`<option>${s}</option>`).join('');
+    expStore.disabled  = false;
+  } else {
+    expStore.innerHTML = `<option value="${userStore}">${userStore}</option>`;
+    expStore.disabled  = true;
+  }
+  document.getElementById('dash-store-filter').innerHTML =
+    '<option value="">— ทุกสาขา —</option>' + STORES.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('ms').innerHTML =
+    STORES.map(s=>`<option>${s}</option>`).join('');
+  document.getElementById('muser').innerHTML =
+    '<option value="">-- ไม่ระบุ --</option>' + HT_USERS.map(h=>`<option>${h}</option>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════
+   FIREBASE LISTENER — real-time sync
+   ══════════════════════════════════════════════════════ */
+function startListen(){
+  // Remove old listener if any
+  if(unsubscribe){ recRef.off('value', unsubscribe); }
+
+  unsubscribe = recRef.on('value', snap => {
+    records = snap.val() || {};
+    updateStats();
+    renderTbl();
+    if(currentUser) updatePrev();
+  });
+}
+
+function stopListen(){
+  if(unsubscribe){ recRef.off('value', unsubscribe); unsubscribe=null; }
+}
+
+/* ══════════════════════════════════════════════════════
+   HT CLAIMS LISTENER — real-time availability (today only)
+   Path: ht_claims/{todayISO}/{store}/{HTxx} = recordKey
+   Each store has its OWN independent HT1–HT120 pool.
+   ══════════════════════════════════════════════════════ */
+function currentFormStore(){
+  // For users: their fixed store. For admin: whatever is picked in #fstore.
+  if(currentUser?.role === 'admin') return document.getElementById('fstore')?.value || '';
+  return currentUser?.store || '';
+}
+
+function startHTListen(store){
+  // Detach previous listener if the store changed
+  if(htUnsub){ htUnsub.ref.off('value', htUnsub.cb); htUnsub = null; }
+  htClaims = {};
+  htStore  = store || '';
+  buildHTDropdown();                           // show full list immediately
+  if(!htStore){ return; }                      // no store chosen yet (admin)
+  const dayRef = htRef.child(todayISO()).child(htStore);
+  const cb = dayRef.on('value', snap => {
+    htClaims = snap.val() || {};
+    buildHTDropdown();
+  }, err => {
+    // If the read is blocked/fails, keep the full list usable
+    console.warn('HT listen error:', err && err.message);
+    htClaims = {};
+    buildHTDropdown();
+  });
+  htUnsub = { ref: dayRef, cb };
+}
+function stopHTListen(){
+  if(htUnsub){ htUnsub.ref.off('value', htUnsub.cb); htUnsub=null; }
+  htClaims = {};
+  htStore  = null;
+}
+
+/* Build the form's User (HT) dropdown — hide HTs already claimed today
+   FOR THE CURRENTLY SELECTED STORE ONLY. */
+function buildHTDropdown(){
+  const sel = document.getElementById('fuser');
+  if(!sel) return;
+  const cur = sel.value;
+  // Admin must pick a store before choosing an HT
+  if(currentUser?.role === 'admin' && !currentFormStore()){
+    sel.innerHTML = '<option value="">-- เลือกสาขาก่อน --</option>';
+    sel.value = '';
+    return;
+  }
+  const available = HT_USERS.filter(ht => !htClaims[ht]);
+  // Keep current selection visible even while typing/saving
+  let opts = '<option value="">-- เลือก --</option>';
+  opts += available.map(ht => `<option>${ht}</option>`).join('');
+  if(cur && !available.includes(cur)) opts += `<option value="${cur}">${cur}</option>`;
+  sel.innerHTML = opts;
+  sel.value = available.includes(cur) || cur==='' ? cur : (htClaims[cur] ? '' : cur);
+}
+
+/* ══════════════════════════════════════════════════════
+   LOGIN / LOGOUT
+   ══════════════════════════════════════════════════════ */
+document.getElementById('lp').addEventListener('keydown', e => { if(e.key==='Enter') doLogin(); });
+document.getElementById('lu').addEventListener('keydown', e => { if(e.key==='Enter') document.getElementById('lp').focus(); });
+
+function doLogin(){
+  const u   = document.getElementById('lu').value.trim();
+  const p   = document.getElementById('lp').value;
+  const acc = ACCOUNTS[u];
+  if(!acc || acc.pass !== p){
+    document.getElementById('lerr').style.display='block'; return;
+  }
+  document.getElementById('lerr').style.display='none';
+  currentUser = { ...acc, username:u };
+
+  document.getElementById('login-page').classList.remove('show');
+  document.getElementById('app-page').classList.add('show');
+
+  // Topbar desktop
+  document.getElementById('tb-name').textContent = acc.display;
+  const rb = document.getElementById('tb-role');
+  rb.textContent = acc.role==='admin' ? '👑 Admin' : '👤 User';
+  rb.className   = 'badge ' + (acc.role==='admin' ? 'badge-admin' : 'badge-user');
+  if(acc.role==='user'){
+    const sb = document.getElementById('tb-store');
+    sb.textContent = '🏪 '+acc.store; sb.style.display='';
+  } else {
+    document.getElementById('tb-store').style.display='none';
+  }
+  // Topbar mobile subrow
+  const rbm = document.getElementById('tb-role-m');
+  rbm.textContent = acc.role==='admin' ? '👑 Admin' : '👤 User';
+  rbm.className   = 'badge ' + (acc.role==='admin' ? 'badge-admin' : 'badge-user');
+  if(acc.role==='user'){
+    const sbm = document.getElementById('tb-store-m');
+    sbm.textContent = '🏪 '+acc.store; sbm.style.display='';
+  } else {
+    document.getElementById('tb-store-m').style.display='none';
+  }
+
+  const isAdmin = acc.role==='admin';
+  document.getElementById('act-col').style.display   = isAdmin ? '' : 'none';
+  document.getElementById('admin-sidebar').style.display = isAdmin ? '' : 'none';
+  document.getElementById('form-card').style.display  = isAdmin ? 'none' : '';
+  document.getElementById('stl0').textContent         = isAdmin ? 'รายการทั้งหมด' : 'รายการสาขา';
+
+  if(isAdmin){
+    // Restore saved sidebar / filter-panel collapse preferences
+    const sidebar = document.getElementById('admin-sidebar');
+    const sbBtn   = document.getElementById('sidebar-toggle');
+    let sidebarCollapsed = false, expCollapsed = false;
+    try{
+      sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === '1';
+      expCollapsed     = localStorage.getItem('expPanelCollapsed') === '1';
+    }catch(e){}
+    sidebar.classList.toggle('collapsed', sidebarCollapsed);
+    if(sbBtn) sbBtn.title = sidebarCollapsed ? 'ขยายเมนู' : 'ย่อเมนู';
+    document.getElementById('exp-card').classList.toggle('collapsed', expCollapsed);
+  }
+
+  buildStoreDropdowns(isAdmin, acc.store);
+  document.getElementById('fdate').value = todayStr();
+  document.getElementById('fby').value   = acc.display;
+
+  const t = todayISO();
+  document.getElementById('exp-from').value = t;
+  document.getElementById('exp-to').value   = t;
+  if(isAdmin){
+    document.getElementById('reset-store').innerHTML =
+      '<option value="">— ทุกสาขา (สแกนทั้งหมด) —</option>' + STORES.map(s=>`<option>${s}</option>`).join('');
+    document.getElementById('reset-date').value = t;
+    document.getElementById('ht-reset-result').innerHTML = '';
+    switchAdminView('dashboard');
+  }
+
+  // Start listening to Firebase
+  startListen();
+  startHTListen(acc.role==='admin' ? '' : acc.store);
+}
+
+function doLogout(){
+  stopListen();
+  stopHTListen();
+  stopClock();
+  dashboardActive = false;
+  currentUser = null;
+  records     = {};
+  document.getElementById('app-page').classList.remove('show');
+  document.getElementById('login-page').classList.add('show');
+  document.getElementById('lu').value = '';
+  document.getElementById('lp').value = '';
+  document.getElementById('lerr').style.display = 'none';
+  document.getElementById('fstore').disabled = false;
+}
+
+/* ══════════════════════════════════════════════════════
+   VISIBLE RECORDS
+   ══════════════════════════════════════════════════════ */
+function visibleArr(){
+  const all = Object.entries(records).map(([k,v]) => ({...v, _key:k}));
+  if(!currentUser || currentUser.role==='admin') return all;
+  return all.filter(r => r.store === currentUser.store);
+}
+
+/* ══════════════════════════════════════════════════════
+   SAVE RECORD → Firebase push
+   ══════════════════════════════════════════════════════ */
+function saveRec(){
+  const prefix = document.getElementById('fp').value;
+  const first  = document.getElementById('ff').value.trim();
+  const last   = document.getElementById('fl').value.trim();
+  const store  = document.getElementById('fstore').value;
+  const htUser = document.getElementById('fuser').value;
+  if(!prefix){ showToast('กรุณาเลือกคำนำหน้า','error'); return; }
+  if(!first) { showToast('กรุณากรอกชื่อ','error'); return; }
+  if(!last)  { showToast('กรุณากรอกนามสกุล','error'); return; }
+  if(!store) { showToast('กรุณาเลือกสาขา','error'); return; }
+  if(!htUser){ showToast('กรุณาเลือก User','error'); return; }
+
+  // Quick client-side check (real protection is the transaction below)
+  if(htClaims[htUser]){
+    showToast(`⚠️ User ${htUser} ถูกเลือกไปแล้วในวันนี้ กรุณาเลือกใหม่`,'error');
+    buildHTDropdown();
+    return;
+  }
+
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true;
+
+  const iso     = todayISO();
+  const recKey  = recRef.push().key;                       // pre-generate record key
+  const claimRef = htRef.child(iso).child(store).child(htUser); // ht_claims/{date}/{store}/{HTxx}
+
+  // Transaction: only the FIRST writer wins the HT for today
+  claimRef.transaction(curr => {
+    if(curr === null) return recKey;  // free → claim it
+    return;                           // already taken → abort
+  }).then(res => {
+    if(!res.committed || res.snapshot.val() !== recKey){
+      // Someone else grabbed this HT first
+      btn.disabled = false;
+      showToast(`⚠️ User ${htUser} เพิ่งถูกเลือกโดยคนอื่น กรุณาเลือกใหม่`,'error');
+      buildHTDropdown();
+      return;
+    }
+    // Won the claim → write the record under the reserved key
+    const newRec = { prefix, first, last, store, htUser, htDate:iso,
+                     date:todayStr(), iso, by:currentUser.display,
+                     byUser:currentUser.username, ts:Date.now() };
+    return recRef.child(recKey).set(newRec).then(() => {
+      showToast(`✅ บันทึก "${prefix}${first} ${last}" (${store} · ${htUser}) เรียบร้อย`, 'success');
+      clearForm();
+    }).catch(err => {
+      // Record write failed → release the claim so HT is reusable
+      claimRef.remove();
+      const msg = /permission/i.test(err.message)
+        ? '❌ บันทึกไม่สำเร็จ: สิทธิ์ Firebase ถูกปฏิเสธ — ต้องแก้ Security Rules'
+        : '❌ บันทึกไม่สำเร็จ: '+err.message;
+      showToast(msg, 'error');
+    });
+  }).catch(err => {
+    const msg = /permission/i.test(err.message)
+      ? '❌ บันทึกไม่สำเร็จ: สิทธิ์ Firebase ถูกปฏิเสธ — ต้องแก้ Security Rules'
+      : '❌ บันทึกไม่สำเร็จ: '+err.message;
+    showToast(msg, 'error');
+  }).finally(() => { btn.disabled = false; });
+}
+
+function clearForm(){
+  document.getElementById('fp').value = '';
+  document.getElementById('ff').value = '';
+  document.getElementById('fl').value = '';
+  document.getElementById('fdate').value = todayStr();
+  if(currentUser?.role==='admin') document.getElementById('fstore').value = '';
+  buildHTDropdown();
+  document.getElementById('fuser').value = '';
+  document.getElementById('fp').focus();
+}
+
+/* ══════════════════════════════════════════════════════
+   RENDER TABLE
+   ══════════════════════════════════════════════════════ */
+function renderTbl(){
+  const q           = (document.getElementById('srch').value||'').toLowerCase();
+  const isAdmin     = currentUser?.role === 'admin';
+  const filterStore = isAdmin ? (document.getElementById('exp-store')?.value||'') : '';
+  // Date range from the Filter & Export panel — applies to admins and store users alike
+  const fromDate    = document.getElementById('exp-from')?.value||'';
+  const toDate      = document.getElementById('exp-to')?.value||'';
+  const base        = visibleArr();
+  // Sort by HT number ascending (HT1, HT2, ... HT120). Records without HT go last;
+  // ties / no-HT fall back to newest first.
+  const htNum = r => {
+    const m = /^HT(\d+)$/.exec(r.htUser||'');
+    return m ? parseInt(m[1],10) : Infinity;
+  };
+  base.sort((a,b) => {
+    const na = htNum(a), nb = htNum(b);
+    if(na !== nb) return na - nb;
+    return (b.ts||0)-(a.ts||0);
+  });
+
+  const filtered = base.filter(r => {
+    if(filterStore && r.store !== filterStore) return false;
+    if(fromDate && (r.iso||'') < fromDate) return false;
+    if(toDate   && (r.iso||'') > toDate)   return false;
+    return (
+      (r.first||'').toLowerCase().includes(q) ||
+      (r.last||'').toLowerCase().includes(q)  ||
+      (r.prefix||'').includes(q) ||
+      (r.store||'').toLowerCase().includes(q)
+    );
+  });
+
+  document.getElementById('tbl-cnt').textContent = filtered.length;
+  const tbody = document.getElementById('tbl-body');
+
+  if(!filtered.length){
+    tbody.innerHTML = `<tr><td colspan="11" class="no-data">ไม่พบข้อมูล</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = filtered.map((r,i) => `
+    <tr>
+      <td style="color:var(--text3);font-size:.78rem;font-weight:600;">${i+1}</td>
+      <td><span class="pill pill-${r.prefix}">${r.prefix}</span></td>
+      <td style="font-weight:600;">${r.first}</td>
+      <td>${r.last}</td>
+      <td>${r.htUser ? `<span class="pill pill-store">${r.htUser}</span>` : '<span style="color:var(--text3)">—</span>'}</td>
+      <td><span class="pill pill-store">${r.store||'—'}</span></td>
+      <td style="color:var(--text2);font-size:.8rem;">${r.date}</td>
+      <td style="color:var(--text2);font-size:.78rem;white-space:nowrap;">${tsToThai(r.ts)}</td>
+      <td style="color:var(--text2);font-size:.8rem;">${r.by}</td>
+      <td>${r.ts ? (isLateRecord(r.ts) ? '<span class="badge-late">🌙 มาสาย</span>' : '<span class="badge-ontime">✅ ตรงเวลา</span>') : '<span style="color:var(--text3)">—</span>'}</td>
+      ${isAdmin
+        ? `<td>
+             <button class="abt abt-edit" onclick="openEdit('${r._key}')">✏️ แก้ไข</button>
+             <button class="abt abt-del"  onclick="confirmDel('${r._key}')">🗑 ลบ</button>
+           </td>`
+        : `<td style="display:none;"></td>`}
+    </tr>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════
+   DELETE
+   ══════════════════════════════════════════════════════ */
+function confirmDel(key){
+  const r = records[key];
+  document.getElementById('confirm-msg').textContent =
+    `ต้องการลบ "${r.prefix}${r.first} ${r.last}" (${r.store}) ใช่หรือไม่?`;
+  document.getElementById('confirm-ok').onclick = () => doDelete(key);
+  document.getElementById('confirm-overlay').classList.add('open');
+}
+function closeConfirm(){ document.getElementById('confirm-overlay').classList.remove('open'); }
+
+function doDelete(key){
+  closeConfirm();
+  const r = records[key] || {};
+  recRef.child(key).remove()
+    .then(()  => {
+      // Release the HT claim so it becomes available again (per-store path)
+      if(r.htUser){ htRef.child(r.htDate || r.iso).child(r.store).child(r.htUser).remove(); }
+      showToast('ลบรายการเรียบร้อยแล้ว','info');
+    })
+    .catch(e  => showToast('❌ ลบไม่สำเร็จ: '+e.message,'error'));
+}
+
+/* ══════════════════════════════════════════════════════
+   EDIT
+   ══════════════════════════════════════════════════════ */
+function openEdit(key){
+  editKey = key;
+  const r = records[key];
+  document.getElementById('mp').value = r.prefix;
+  document.getElementById('mf').value = r.first;
+  document.getElementById('ml').value = r.last;
+  document.getElementById('ms').value = r.store||'';
+  document.getElementById('muser').value = r.htUser||'';
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal(){ document.getElementById('modal').classList.remove('open'); editKey=null; }
+function saveEdit(){
+  const prefix = document.getElementById('mp').value;
+  const first  = document.getElementById('mf').value.trim();
+  const last   = document.getElementById('ml').value.trim();
+  const store  = document.getElementById('ms').value;
+  const htUser = document.getElementById('muser').value;
+  if(!first||!last){ showToast('กรุณากรอกข้อมูลให้ครบ','error'); return; }
+
+  const r        = records[editKey] || {};
+  const oldHT    = r.htUser || '';
+  const oldStore = r.store  || '';
+  const htDate   = r.htDate || r.iso;   // the day this record's HT belongs to
+
+  // Helper: remove the old claim (per-store path) if it existed
+  const releaseOld = () => {
+    if(oldHT && oldStore) htRef.child(htDate).child(oldStore).child(oldHT).remove();
+  };
+
+  // No change to HT *and* no change to store → simple update, claim untouched
+  if(htUser === oldHT && store === oldStore){
+    recRef.child(editKey).update({ prefix, first, last, store })
+      .then(()  => { showToast('✅ แก้ไขข้อมูลเรียบร้อยแล้ว','success'); closeModal(); })
+      .catch(e  => showToast('❌ แก้ไขไม่สำเร็จ: '+e.message,'error'));
+    return;
+  }
+
+  // Write record + release old claim
+  const finishUpdate = (committedHT) => {
+    recRef.child(editKey).update({ prefix, first, last, store, htUser:committedHT, htDate })
+      .then(() => {
+        releaseOld();   // release old (handles HT change or store move)
+        showToast('✅ แก้ไขข้อมูลเรียบร้อยแล้ว','success');
+        closeModal();
+      })
+      .catch(e => showToast('❌ แก้ไขไม่สำเร็จ: '+e.message,'error'));
+  };
+
+  if(!htUser){ finishUpdate(''); return; }   // cleared HT
+  if(!store) { showToast('กรุณาเลือกสาขา','error'); return; }
+
+  // Claim the HT in the (possibly new) store. Skip claiming only if both HT and store unchanged (handled above).
+  const claimRef = htRef.child(htDate).child(store).child(htUser);
+  claimRef.transaction(curr => (curr===null || curr===editKey ? editKey : undefined))
+    .then(res => {
+      if(!res.committed || res.snapshot.val() !== editKey){
+        showToast(`⚠️ User ${htUser} ถูกใช้ไปแล้วในสาขา ${store} วันนั้น`,'error');
+        return;
+      }
+      finishUpdate(htUser);
+    })
+    .catch(e => showToast('❌ แก้ไขไม่สำเร็จ: '+e.message,'error'));
+}
+document.getElementById('modal').addEventListener('click', e => {
+  if(e.target===document.getElementById('modal')) closeModal();
+});
+
+/* ══════════════════════════════════════════════════════
+   STATS
+   ══════════════════════════════════════════════════════ */
+function updateStats(){
+  const base  = visibleArr();
+  const today = todayISO(), ym = today.slice(0,7);
+  document.getElementById('st0').textContent = base.length;
+  document.getElementById('st1').textContent = base.filter(r=>r.iso===today).length;
+  document.getElementById('st2').textContent = base.filter(r=>(r.iso||'').startsWith(ym)).length;
+  document.getElementById('st3').textContent = base.filter(r=>r.iso===today && isLateRecord(r.ts)).length;
+  if(currentUser?.role === 'admin' && dashboardActive) renderDashboard();
+}
+
+/* ══════════════════════════════════════════════════════
+   DASHBOARD — live clock (Asia/Bangkok)
+   ══════════════════════════════════════════════════════ */
+function startClock(){
+  if(clockTimer) return;
+  updateClock();
+  clockTimer = setInterval(updateClock, 1000);
+}
+function stopClock(){
+  if(clockTimer){ clearInterval(clockTimer); clockTimer = null; }
+}
+function updateClock(){
+  const now = new Date();
+  const p   = bangkokParts(now.getTime());
+  const hh  = String(p.hour).padStart(2,'0');
+  const mm  = String(p.minute).padStart(2,'0');
+  const ss  = String(p.second).padStart(2,'0');
+  const timeEl   = document.getElementById('dc-time');
+  const statusEl = document.getElementById('dc-status');
+  const clockEl  = document.getElementById('dash-clock');
+  if(!timeEl) return;
+  timeEl.textContent = `${hh}:${mm}:${ss}`;
+  const late = bangkokSecondsOfDay(now.getTime()) > LATE_CUTOFF_SECONDS;
+  clockEl.classList.toggle('late', late);
+  statusEl.textContent = late
+    ? '🌙 ขณะนี้เกิน 20:00 น. — ลงทะเบียนถือว่า "มาสาย"'
+    : '✅ ขณะนี้ยังไม่เกิน 20:00 น. — ลงทะเบียนถือว่า "ตรงเวลา"';
+}
+
+/* ══════════════════════════════════════════════════════
+   DASHBOARD — filter helpers
+   ══════════════════════════════════════════════════════ */
+function getDashFiltered(){
+  const store = document.getElementById('dash-store-filter')?.value || '';
+  const from  = document.getElementById('dash-from')?.value || '';
+  const to    = document.getElementById('dash-to')?.value || '';
+  return Object.values(records).filter(r=>{
+    if(store && r.store !== store) return false;
+    if(from  && (r.iso||'') < from) return false;
+    if(to    && (r.iso||'') > to)   return false;
+    return true;
+  });
+}
+function resetDashFilter(){
+  document.getElementById('dash-store-filter').value = '';
+  document.getElementById('dash-from').value = '';
+  document.getElementById('dash-to').value   = '';
+  renderDashboard();
+}
+
+/* ══════════════════════════════════════════════════════
+   DASHBOARD — main render
+   ══════════════════════════════════════════════════════ */
+function renderDashboard(){
+  if(currentUser?.role !== 'admin') return;
+  const all   = getDashFiltered();
+  const today = todayISO(), ym = today.slice(0,7);
+
+  const todayArr = all.filter(r=>r.iso===today);
+  const monthArr = all.filter(r=>(r.iso||'').startsWith(ym));
+  const lateAll  = all.filter(r=>isLateRecord(r.ts));
+  const ontimeAll= all.length - lateAll.length;
+  const rate     = all.length ? (lateAll.length/all.length*100) : 0;
+
+  document.getElementById('dash-greet-name').textContent = currentUser.display || currentUser.username;
+  document.getElementById('dash-greet-date').textContent =
+    `📅 ${todayStr()} · ระบบจะแยกผู้ที่ลงทะเบียนหลัง 20:00 น. (เวลาประเทศไทย) ว่า "มาสาย" โดยอัตโนมัติ`;
+
+  // Filter summary hint
+  const fStore = document.getElementById('dash-store-filter')?.value || '';
+  const fFrom  = document.getElementById('dash-from')?.value || '';
+  const fTo    = document.getElementById('dash-to')?.value || '';
+  const hintEl = document.getElementById('dash-filter-hint');
+  if(fStore || fFrom || fTo){
+    let parts = [];
+    if(fStore) parts.push(`สาขา ${fStore}`);
+    if(fFrom||fTo) parts.push(`${isoThai(fFrom)||'—'} ถึง ${isoThai(fTo)||'—'}`);
+    hintEl.textContent = `📌 กำลังกรอง: ${parts.join(' · ')} — พบ ${all.length} รายการ`;
+  } else {
+    hintEl.textContent = `แสดงข้อมูลทั้งหมด ${all.length} รายการ (ยังไม่มีการกรอง)`;
+  }
+
+  document.getElementById('dk-total').textContent  = all.length;
+  document.getElementById('dk-today').textContent  = todayArr.length;
+  document.getElementById('dk-month').textContent  = monthArr.length;
+  document.getElementById('dk-ontime').textContent = ontimeAll;
+  document.getElementById('dk-late').textContent   = lateAll.length;
+  document.getElementById('dk-rate').textContent   = rate.toFixed(1) + '%';
+
+  renderOnTimeChart(ontimeAll, lateAll.length);
+  renderHourlyChart(all);
+  renderStoreBreakdown(all);
+  renderLateTable(lateAll);
+}
+
+function renderOnTimeChart(ontime, late){
+  const canvas = document.getElementById('chart-ontime');
+  if(!canvas || typeof Chart === 'undefined') return;
+  if(chartOnTime) chartOnTime.destroy();
+  chartOnTime = new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      labels: ['ตรงเวลา (≤ 20:00)', 'มาสาย (หลัง 20:00)'],
+      datasets: [{ data: [ontime, late], backgroundColor: ['#00C49A','#F7567C'], borderWidth: 0 }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      cutout: '68%',
+      plugins: { legend: { position: 'bottom', labels: { font: { family: 'Kanit' }, padding: 14 } } }
+    }
+  });
+}
+
+function renderHourlyChart(all){
+  const canvas = document.getElementById('chart-hourly');
+  if(!canvas || typeof Chart === 'undefined') return;
+  const hourCounts = new Array(24).fill(0);
+  all.forEach(r=>{
+    if(!r.ts) return;
+    hourCounts[bangkokParts(r.ts).hour]++;
+  });
+  const labels = hourCounts.map((_,h)=>`${String(h).padStart(2,'0')}:00`);
+  const colors = hourCounts.map((_,h)=> h >= 20 ? '#F7567C' : '#4F6EF7');
+  if(chartHourly) chartHourly.destroy();
+  chartHourly = new Chart(canvas, {
+    type: 'bar',
+    data: { labels, datasets: [{ label: 'จำนวนลงทะเบียน', data: hourCounts, backgroundColor: colors, borderRadius: 6, maxBarThickness: 26 }] },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0, font: { family:'Kanit' } } },
+        x: { ticks: { font: { size: 10, family:'Kanit' } } }
+      }
+    }
+  });
+}
+
+function renderStoreBreakdown(all){
+  const tbody = document.getElementById('dash-store-body');
+  if(!tbody) return;
+  const map = {};
+  all.forEach(r=>{
+    const s = r.store || '—';
+    if(!map[s]) map[s] = { total:0, late:0 };
+    map[s].total++;
+    if(isLateRecord(r.ts)) map[s].late++;
+  });
+  const rows = Object.entries(map).map(([store,v]) => ({
+    store, total:v.total, late:v.late, ontime:v.total-v.late,
+    rate: v.total ? (v.late/v.total*100) : 0
+  }));
+  if(!rows.length){
+    tbody.innerHTML = '<tr><td colspan="5" class="no-data">ไม่มีข้อมูล</td></tr>';
+    return;
+  }
+  rows.sort((a,b) => b.late - a.late || b.rate - a.rate || a.store.localeCompare(b.store));
+  tbody.innerHTML = rows.slice(0,15).map(r => `
+    <tr>
+      <td><span class="pill pill-store">${r.store}</span></td>
+      <td style="text-align:center;">${r.total}</td>
+      <td style="text-align:center;color:var(--accent);font-weight:700;">${r.ontime}</td>
+      <td style="text-align:center;color:var(--secondary);font-weight:700;">${r.late}</td>
+      <td>
+        <div class="rate-cell">
+          <div class="rate-bar"><div class="rate-bar-fill" style="width:${r.rate.toFixed(0)}%"></div></div>
+          <span class="rate-txt">${r.rate.toFixed(1)}%</span>
+        </div>
+      </td>
+    </tr>`).join('');
+}
+
+function renderLateTable(lateAll){
+  const tbody = document.getElementById('dash-late-body');
+  if(!tbody) return;
+  if(!lateAll.length){
+    tbody.innerHTML = '<tr><td colspan="6" class="no-data">✅ ไม่พบรายการที่ลงทะเบียนหลัง 20:00 น.</td></tr>';
+    return;
+  }
+  const rows = [...lateAll].sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,20);
+  tbody.innerHTML = rows.map(r => `
+    <tr>
+      <td><span class="pill pill-${r.prefix}">${r.prefix}</span></td>
+      <td style="font-weight:600;">${r.first} ${r.last}</td>
+      <td>${r.htUser ? `<span class="pill pill-store">${r.htUser}</span>` : '<span style="color:var(--text3)">—</span>'}</td>
+      <td><span class="pill pill-store">${r.store||'—'}</span></td>
+      <td style="color:var(--text2);font-size:.8rem;white-space:nowrap;">${tsToThai(r.ts)}</td>
+      <td><span class="badge-late">🌙 มาสาย</span></td>
+    </tr>`).join('');
+}
+
+/* ══════════════════════════════════════════════════════
+   EXPORT
+   ══════════════════════════════════════════════════════ */
+/* Resolve the store to filter/export by:
+   - Admin: whatever is selected in the #exp-store dropdown (blank = all stores)
+   - Store user: always locked to their own store, regardless of the (disabled) dropdown */
+function expStoreValue(){
+  if(currentUser?.role === 'admin') return document.getElementById('exp-store').value;
+  return currentUser?.store || '';
+}
+
+function getExpData(){
+  const store = expStoreValue();
+  const from  = document.getElementById('exp-from').value;
+  const to    = document.getElementById('exp-to').value;
+  return Object.values(records).filter(r=>{
+    if(store && r.store!==store) return false;
+    if(from  && r.iso<from)      return false;
+    if(to    && r.iso>to)        return false;
+    return true;
+  }).sort((a,b)=>{
+    const ha = (m=>m?parseInt(m[1],10):Infinity)(/^HT(\d+)$/.exec(a.htUser||''));
+    const hb = (m=>m?parseInt(m[1],10):Infinity)(/^HT(\d+)$/.exec(b.htUser||''));
+    if(ha !== hb) return ha - hb;
+    return (a.iso||'').localeCompare(b.iso||'') || (a.ts||0)-(b.ts||0);
+  });
+}
+
+function updatePrev(){
+  if(!currentUser) return;
+  const d     = getExpData();
+  const store = expStoreValue();
+  const from  = document.getElementById('exp-from').value;
+  const to    = document.getElementById('exp-to').value;
+  let msg = `พบ ${d.length} รายการ`;
+  if(store) msg += ` · สาขา ${store}`;
+  if(from||to) msg += ` · ${isoThai(from)||'—'} ถึง ${isoThai(to)||'—'}`;
+  document.getElementById('prev-txt').textContent = msg;
+  document.getElementById('exp-prev').classList.add('show');
+}
+
+function exportExcel(){
+  const data  = getExpData();
+  if(!data.length){ showToast('ไม่พบข้อมูลในเงื่อนไขที่เลือก','error'); return; }
+  const store = expStoreValue();
+  const from  = document.getElementById('exp-from').value;
+  const to    = document.getElementById('exp-to').value;
+
+  const wsData = [
+    ['ระบบบันทึกชื่อ-นามสกุล'],
+    [store ? `สาขา: ${store}` : 'ทุกสาขา', '', from||to ? `ช่วงวันที่: ${isoThai(from)||'—'} ถึง ${isoThai(to)||'—'}` : ''],
+    [],
+    ['ลำดับ','สาขา','User','คำนำหน้า','ชื่อ','นามสกุล','ชื่อ-นามสกุลเต็ม','วันที่บันทึก','วันที่/เวลา บันทึกเข้าระบบ (TH)','บันทึกโดย'],
+    ...data.map((r,i) => [i+1, r.store||'', r.htUser||'', r.prefix, r.first, r.last, `${r.prefix}${r.first} ${r.last}`, r.date, tsToThai(r.ts), r.by])
+  ];
+
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [{wch:7},{wch:12},{wch:10},{wch:11},{wch:20},{wch:22},{wch:30},{wch:20},{wch:24},{wch:18}];
+  ws['!merges'] = [{s:{r:0,c:0},e:{r:0,c:9}},{s:{r:1,c:0},e:{r:1,c:2}},{s:{r:1,c:2},e:{r:1,c:9}}];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'รายชื่อ');
+
+  let fname = 'รายชื่อ';
+  if(store) fname += `_${store}`;
+  if(from)  fname += `_${from}`;
+  if(to && to!==from) fname += `_to_${to}`;
+  XLSX.writeFile(wb, fname+'.xlsx');
+  showToast(`✅ Export สำเร็จ ${data.length} รายการ`,'success');
+}
+
+/* ══════════════════════════════════════════════════════
+   ADMIN SIDEBAR — switch between Table / Export / Reset views
+   ══════════════════════════════════════════════════════ */
+function switchAdminView(view){
+  document.querySelectorAll('.admin-view').forEach(v => v.classList.toggle('active', v.id === 'view-'+view));
+  document.querySelectorAll('.side-link').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  if(view === 'table') updatePrev();
+
+  dashboardActive = (view === 'dashboard');
+  if(dashboardActive){
+    startClock();
+    renderDashboard();
+  } else {
+    stopClock();
+  }
+}
+
+/* ══════════════════════════════════════════════════════
+   SIDEBAR — collapse / expand (modern professional layout)
+   ══════════════════════════════════════════════════════ */
+function toggleSidebar(){
+  const sb  = document.getElementById('admin-sidebar');
+  const btn = document.getElementById('sidebar-toggle');
+  const collapsed = sb.classList.toggle('collapsed');
+  if(btn) btn.title = collapsed ? 'ขยายเมนู' : 'ย่อเมนู';
+  try{ localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0'); }catch(e){}
+}
+
+/* ══════════════════════════════════════════════════════
+   FILTER & EXPORT — collapsible panel (merged view)
+   ══════════════════════════════════════════════════════ */
+function toggleExportPanel(){
+  const card = document.getElementById('exp-card');
+  const collapsed = card.classList.toggle('collapsed');
+  try{ localStorage.setItem('expPanelCollapsed', collapsed ? '1' : '0'); }catch(e){}
+}
+
+/* ══════════════════════════════════════════════════════
+   HT RESET TOOL (Admin) — find & clear "stuck" HT claims
+   A claim ht_claims/{date}/{store}/{HTxx} = recordKey is
+   considered "ค้างระบบ / orphan" if:
+     - no record with that key exists anymore, OR
+     - that record's htUser / store / htDate no longer
+       matches this claim (left over from an edit/move
+       that didn't fully release the old claim, e.g. due
+       to a dropped connection).
+   Removing such a claim does NOT touch any saved record —
+   it only frees up the HTxx slot so it can be selected
+   again for that store/date.
+   ══════════════════════════════════════════════════════ */
+function isOrphanClaim(row, date){
+  const rec = records[row.recKey];
+  if(!rec) return true;
+  if(rec.htUser !== row.ht)   return true;
+  if(rec.store  !== row.store) return true;
+  if((rec.htDate || rec.iso) !== date) return true;
+  return false;
+}
+
+function loadHTReset(){
+  const store = document.getElementById('reset-store').value;
+  const date  = document.getElementById('reset-date').value || todayISO();
+  const resultDiv = document.getElementById('ht-reset-result');
+  resultDiv.innerHTML = '<p style="padding:14px;color:var(--text2);">⏳ กำลังตรวจสอบ...</p>';
+
+  const ref = store ? htRef.child(date).child(store) : htRef.child(date);
+  ref.once('value').then(snap => {
+    const data = snap.val() || {};
+    const rows = [];
+    if(store){
+      Object.entries(data).forEach(([ht, recKey]) => rows.push({store, ht, recKey}));
+    } else {
+      Object.entries(data).forEach(([st, htMap]) => {
+        Object.entries(htMap || {}).forEach(([ht, recKey]) => rows.push({store: st, ht, recKey}));
+      });
+    }
+    renderHTResetTbl(rows, date);
+  }).catch(e => {
+    resultDiv.innerHTML = `<p style="padding:14px;color:#C62828;">❌ ตรวจสอบไม่สำเร็จ: ${e.message}</p>`;
+  });
+}
+
+function renderHTResetTbl(rows, date){
+  const resultDiv = document.getElementById('ht-reset-result');
+  if(!rows.length){
+    resultDiv.innerHTML = '<p style="padding:14px;color:var(--text2);">✅ ไม่พบรายการ User (HT) ที่ถูกจองในเงื่อนไขนี้</p>';
+    return;
+  }
+  rows.sort((a,b) => a.store===b.store
+    ? (parseInt((a.ht.match(/\d+/)||['',0])[0],10) - parseInt((b.ht.match(/\d+/)||['',0])[0],10))
+    : a.store.localeCompare(b.store));
+
+  const orphans = rows.filter(r => isOrphanClaim(r, date));
+
+  let html = `<div class="exp-prev show" style="margin-bottom:10px;"><span>📊</span><span>พบ ${rows.length} รายการที่ถูกจอง · ค้างระบบ ${orphans.length} รายการ (วันที่ ${isoThai(date)})</span></div>`;
+  if(orphans.length){
+    html += `<div style="margin-bottom:14px;">
+      <button class="btn" style="background:#E53935;color:#fff;" onclick="resetAllOrphans('${date}')">🧹 ปลดล็อกที่ค้างทั้งหมด (${orphans.length})</button>
+    </div>`;
+  }
+  html += `<div class="tbl-wrap"><table><thead><tr>
+      <th>สาขา</th><th>User (HT)</th><th>สถานะ</th><th>ผูกกับรายชื่อ</th><th>จัดการ</th>
+    </tr></thead><tbody>`;
+  rows.forEach(r => {
+    const rec     = records[r.recKey];
+    const orphan  = isOrphanClaim(r, date);
+    const status  = orphan
+      ? '<span style="color:#C62828;font-weight:700;">⚠️ ค้างระบบ</span>'
+      : '<span style="color:#065F46;font-weight:700;">✅ ใช้งานปกติ</span>';
+    const bound   = rec
+      ? `${rec.prefix}${rec.first} ${rec.last} <span style="color:var(--text3);">(${rec.store})</span>`
+      : '<span style="color:var(--text3);">— ไม่พบข้อมูล —</span>';
+    html += `<tr>
+      <td><span class="pill pill-store">${r.store}</span></td>
+      <td><span class="pill pill-store">${r.ht}</span></td>
+      <td>${status}</td>
+      <td>${bound}</td>
+      <td><button class="abt abt-del" onclick="resetSingleHT('${date}','${r.store}','${r.ht}')">🔓 ปลดล็อก</button></td>
+    </tr>`;
+  });
+  html += `</tbody></table></div>`;
+  resultDiv.innerHTML = html;
+}
+
+function resetSingleHT(date, store, ht){
+  if(!confirm(`ต้องการปลดล็อก ${ht} ของสาขา ${store} วันที่ ${isoThai(date)} หรือไม่?\n\nหากมีรายชื่อผูกอยู่ รายชื่อนั้นจะยังอยู่ในระบบตามปกติ แต่ User "${ht}" จะกลับมาเลือกลงทะเบียนใหม่ได้ทันที`)) return;
+  htRef.child(date).child(store).child(ht).remove()
+    .then(() => {
+      showToast(`✅ ปลดล็อก ${ht} (${store}) เรียบร้อย`, 'success');
+      loadHTReset();
+      if(htStore === store) startHTListen(htStore); // refresh live dropdown if relevant
+    })
+    .catch(e => showToast('❌ ไม่สำเร็จ: ' + e.message, 'error'));
+}
+
+function resetAllOrphans(date){
+  const store = document.getElementById('reset-store').value;
+  const ref = store ? htRef.child(date).child(store) : htRef.child(date);
+  ref.once('value').then(snap => {
+    const data = snap.val() || {};
+    const removals = [];
+    if(store){
+      Object.entries(data).forEach(([ht, recKey]) => {
+        const row = {store, ht, recKey};
+        if(isOrphanClaim(row, date)) removals.push(htRef.child(date).child(store).child(ht).remove());
+      });
+    } else {
+      Object.entries(data).forEach(([st, htMap]) => {
+        Object.entries(htMap || {}).forEach(([ht, recKey]) => {
+          const row = {store: st, ht, recKey};
+          if(isOrphanClaim(row, date)) removals.push(htRef.child(date).child(st).child(ht).remove());
+        });
+      });
+    }
+    if(!removals.length){ showToast('ไม่มีรายการค้างให้ปลดล็อก', 'info'); return; }
+    Promise.all(removals).then(() => {
+      showToast(`✅ ปลดล็อกรายการค้างสำเร็จ ${removals.length} รายการ`, 'success');
+      loadHTReset();
+      if(htStore && (!store || htStore===store)) startHTListen(htStore);
+    }).catch(e => showToast('❌ ผิดพลาด: ' + e.message, 'error'));
+  });
+}
+
+/* ══════════════════════════════════════════════════════
+   TOAST
+   ══════════════════════════════════════════════════════ */
+let toastT;
+function showToast(msg, type='success'){
+  clearTimeout(toastT);
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = `toast ${type}`; t.style.display='block';
+  toastT = setTimeout(()=>{ t.style.display='none'; }, 3600);
+}
+
+/* ══════════════════════════════════════════════════════
+   ENTER KEY
+   ══════════════════════════════════════════════════════ */
+[['fp','ff'],['ff','fl'],['fl',null]].forEach(([id,next])=>{
+  document.getElementById(id)?.addEventListener('keydown', e=>{
+    if(e.key!=='Enter') return;
+    if(next) document.getElementById(next).focus(); else saveRec();
+  });
+});
+
+
+/* ══════════════════════════════════════════════════════
+   QR CODE LOGIN — 2-Screen
+   Screen 1: Scan Username QR  → shows result + "ถัดไป" button
+   Screen 2: Scan Password QR  → auto login on success
+   QR content:  Screen1 = plain username e.g. "Store011"
+                Screen2 = plain password  e.g. "store011"
+   ══════════════════════════════════════════════════════ */
+let html5QrCode1 = null;
+let html5QrCode2 = null;
+let qrUsername   = '';
+let scanLock1    = false;
+let scanLock2    = false;
+
+/* ── Tab switch ── */
+function switchTab(tab){
+  document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  event.currentTarget.classList.add('active');
+  document.getElementById('tab-'+tab).classList.add('active');
+  if(tab === 'qr'){
+    showScreen(1);
+    startQR1();
+  } else {
+    stopAllQR();
+  }
+}
+
+/* ── Screen switch ── */
+function showScreen(n){
+  document.getElementById('qr-screen-1').style.display = n===1 ? '' : 'none';
+  document.getElementById('qr-screen-2').style.display = n===2 ? '' : 'none';
+}
+
+/* ── Status helpers ── */
+function setStatus1(msg, type){
+  const el = document.getElementById('qr-status-1');
+  el.textContent = msg;
+  el.className = 'qr-status' + (type ? ' '+type : '');
+}
+function setStatus2(msg, type){
+  const el = document.getElementById('qr-status-2');
+  el.textContent = msg;
+  el.className = 'qr-status' + (type ? ' '+type : '');
+}
+
+/* ══ SCREEN 1 — Scan Username ════════════════════════ */
+function startQR1(){
+  if(html5QrCode1) return;
+  setStatus1('📷 กำลังเปิดกล้อง...','scanning');
+  scanLock1 = false;
+  const el1  = document.getElementById('qr-reader');
+  const wrap1 = el1.closest('.qr-wrap');
+  el1.innerHTML = '';
+  const w1 = (wrap1 ? wrap1.offsetWidth : 0) || 360;
+  const box1 = Math.floor(w1 * 0.65);
+  html5QrCode1 = new Html5Qrcode('qr-reader', { verbose: false });
+  html5QrCode1.start(
+    { facingMode:'environment' },
+    { fps:12, qrbox:{width:box1, height:box1} },
+    (txt) => handleUser(txt),
+    () => {}
+  ).then(()=>{
+    setStatus1('🔍 พร้อม — สแกน QR ชื่อผู้ใช้','scanning');
+  }).catch(err=>{
+    setStatus1('❌ ไม่สามารถเปิดกล้องได้ กรุณาอนุญาตการเข้าถึงกล้อง','error');
+    html5QrCode1 = null;
+  });
+}
+
+function stopQR1(){
+  if(html5QrCode1){
+    const q = html5QrCode1;
+    html5QrCode1 = null;
+    q.stop().catch(()=>{});
+  }
+}
+
+function handleUser(text){
+  if(scanLock1) return;
+  const val = text.trim();
+  if(!ACCOUNTS[val]){
+    scanLock1 = true;
+    setStatus1('❌ ไม่พบชื่อผู้ใช้ "'+val+'" ในระบบ','error');
+    setTimeout(()=>{ scanLock1=false; setStatus1('🔍 สแกนใหม่อีกครั้ง','scanning'); }, 2000);
+    return;
+  }
+  // Found — lock and show result
+  scanLock1   = true;
+  qrUsername  = val;
+  stopQR1();
+
+  setStatus1('✅ พบชื่อผู้ใช้เรียบร้อย','success');
+  document.getElementById('qr-result-user-txt').textContent = val;
+  document.getElementById('qr-result-user').style.display   = 'flex';
+  document.getElementById('btn-qr-next').style.display      = 'block';
+  document.getElementById('qr-scanline-1').style.display    = 'none';
+}
+
+function rescanUser(){
+  stopQR1();
+  html5QrCode1 = null;
+  scanLock1    = false;
+  qrUsername   = '';
+  document.getElementById('qr-result-user').style.display = 'none';
+  document.getElementById('btn-qr-next').style.display    = 'none';
+  document.getElementById('qr-scanline-1').style.display  = '';
+  setStatus1('กำลังเปิดกล้อง...','scanning');
+  setTimeout(()=>{ startQR1(); }, 300);
+}
+
+/* ── Next button → go to Screen 2 ── */
+function goToStep2(){
+  stopQR1();
+  html5QrCode1 = null;
+  showScreen(2);
+  document.getElementById('qr-badge-s2').textContent = '👤 ' + qrUsername;
+  setStatus2('กำลังเปิดกล้อง...','scanning');
+  scanLock2 = false;
+  // Wait for screen 2 layout to settle, then let startQR2 retry until wrap has real size
+  setTimeout(()=>{ startQR2(); }, 100);
+}
+
+/* ══ SCREEN 2 — Scan Password ════════════════════════ */
+function startQR2(){
+  if(html5QrCode2) return;
+  // Ensure screen 2 wrap is fully rendered and has real dimensions
+  const wrap = document.getElementById('qr-wrap-2');
+  const el   = document.getElementById('qr-reader-2');
+  if(!wrap || !el || wrap.offsetWidth === 0){
+    setTimeout(()=>{ startQR2(); }, 150);
+    return;
+  }
+  // Force element dimensions to match wrap
+  const w = wrap.offsetWidth;
+  el.innerHTML = '';
+  el.style.width  = w + 'px';
+  el.style.height = w + 'px';   // square viewport for qrbox
+
+  html5QrCode2 = new Html5Qrcode('qr-reader-2', { verbose: false });
+  const boxSize = Math.floor(w * 0.65);
+  html5QrCode2.start(
+    { facingMode:'environment' },
+    { fps:12, qrbox:{width:boxSize, height:boxSize} },
+    (txt) => handlePass(txt),
+    () => {}
+  ).then(()=>{
+    el.style.height = '';   // restore natural height after camera active
+    setStatus2('🔍 พร้อม — สแกน QR รหัสผ่าน','scanning');
+  }).catch(err=>{
+    setStatus2('❌ ไม่สามารถเปิดกล้องได้: กรุณาอนุญาตการเข้าถึงกล้อง','error');
+    html5QrCode2 = null;
+  });
+}
+
+function stopQR2(){
+  if(html5QrCode2){
+    const q = html5QrCode2;
+    html5QrCode2 = null;
+    q.stop().catch(()=>{});
+  }
+}
+
+function handlePass(text){
+  if(scanLock2) return;
+  const val = text.trim();
+  const acc = ACCOUNTS[qrUsername];
+  if(!acc || acc.pass !== val){
+    scanLock2 = true;
+    setStatus2('❌ รหัสผ่านไม่ถูกต้อง กรุณาสแกน QR รหัสผ่านของสาขา '+qrUsername,'error');
+    setTimeout(()=>{ scanLock2=false; setStatus2('🔍 สแกน QR รหัสผ่านอีกครั้ง','scanning'); }, 2200);
+    return;
+  }
+  // Success
+  scanLock2 = true;
+  stopQR2();
+  setStatus2('✅ สแกนสำเร็จ! กำลังเข้าสู่ระบบ...','success');
+  document.getElementById('lu').value = qrUsername;
+  document.getElementById('lp').value = val;
+  setTimeout(()=>{ doLogin(); }, 800);
+}
+
+/* ── Back to screen 1 ── */
+function backToStep1(){
+  stopQR2();
+  html5QrCode2 = null;
+  scanLock2    = false;
+  showScreen(1);
+  // Reset screen 1 for re-scan
+  rescanUser();
+}
+
+function stopAllQR(){
+  stopQR1(); stopQR2();
+}
+
+
+/* ══════════════════════════════════════════════════════
+   INIT — hide loading, show login after Firebase ready
+   ══════════════════════════════════════════════════════ */
+db.ref('.info/connected').once('value').then(()=>{
+  document.getElementById('loading').classList.add('hide');
+  document.getElementById('login-page').classList.add('show');
+}).catch(()=>{
+  document.getElementById('loading').classList.add('hide');
+  document.getElementById('login-page').classList.add('show');
+});
+</script>
+</body>
+</html>
